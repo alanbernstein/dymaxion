@@ -7,8 +7,9 @@ import numpy as np
 from geometry import geo_polyarea, icosahedron
 
 
-# TODO: russia mainland isn't contiguous
+# TODO: russia mainland isn't contiguous (dateline)
 # TODO: combine into continents (metadata has this info)
+
 
 borders_file = 'world-110m.geo.json'
 
@@ -17,15 +18,13 @@ r_earth_mi = 3958.8  # radius of actual earth
 r_ball_in = 10  # planned radius of CNC ball
 R = r_ball_in
 
-verbosity = 2
+verbosity = 3
 
-# DS = downsample rate
-# plot_mode, DS = '3d-sphere', 10
-plot_mode, DS = '3d-icosahedron', 1
-# plot_mode, DS = '2d-latlon', 30
-PLOT_GEO_GRID = False
-country_whitelist = []
-country_whitelist = ['Canada', 'United States', 'Australia', 'China', 'Egypt', 'Brazil', 'Germany', 'Russia', 'Antarctica']
+# count_thresh, area_thresh, DS = -1, 10000, 10
+count_thresh, area_thresh, DS = 0, 100000, 1
+
+name_whitelist = []
+# name_whitelist = ['Canada', 'United States', 'Australia', 'China', 'Egypt', 'Brazil', 'Germany', 'Russia', 'Antarctica']
 
 
 # @pm
@@ -34,15 +33,108 @@ def main():
     with open(borders_file, 'r') as f:
         geoj = json.load(f)
 
-    fig = plt.figure()
-    if plot_mode.startswith('3d'):
-        ax = fig.add_subplot(111, projection='3d')
-    else:
-        ax = fig.add_subplot(111)
+    shapes = filter_country_geojson(geoj, name_whitelist, count_thresh, area_thresh, DS)
 
+    fig = plt.figure()
+
+    # ax = fig.add_subplot(111)  # for 2d plots
+    ax = fig.add_subplot(111, projection='3d')  # for 3d plots
+
+
+    # plot_2d_latlon(ax, shapes)
+    # plot_3d_sphere(ax, shapes)
+    plot_3d_icosahedron(ax, shapes)
+
+    # plot_geo_grid(ax)
+
+    plt.show()
+
+
+def plot_3d_icosahedron(ax, shapes):
+    for shape in shapes:
+        lon, lat = zip(*shape)
+        lon = np.array(lon)
+        lat = np.array(lat)
+        x = R * np.cos(lon * d2r) * np.cos(lat * d2r)
+        y = R * np.sin(lon * d2r) * np.cos(lat * d2r)
+        z = R * np.sin(lat * d2r)
+        ax.plot(x, y, z, 'k-', linewidth=1)
+
+        # plot polyhedron
+        pv, pe = icosahedron(circumradius=R)
+        # TODO: rotate icosahedron to achieve contiguous landmass dymaxion projection
+        #       and/or rotate so that icosahedron vertices are at earth poles
+        for e in pe:
+            v0, v1 = pv[e[0]], pv[e[1]]
+            ax.plot(*zip(v0, v1), 'r--', linewidth=1, alpha=0.5)
+
+        # TODO project country shapes onto polyhedron
+        # for each face of polyhedron:
+        # - define frustum bounds check function
+        # - compute equation of plane
+        # (these steps should be applied to a generic polyhedron,
+        # not computed analytically for the predefined vertices,
+        # so we can rotate the polyhedron arbitrarily first)
+
+        # for each point in the shape:
+        # - use frustum bounds checks to identify corresponding face
+        # - use equation of plane to project point onto plane
+
+        # draw the projected points instead
+
+
+def plot_geo_grid(ax, d=30):
+    # plot lat/lon lines for visual reference
+    t = np.linspace(0, 2*np.pi, 64)
+    for ll in np.arange(-90, 91, d):
+        # lines of constant latitude
+        x = R*np.cos(t)*np.cos(ll*d2r)
+        y = R*np.sin(t)*np.cos(ll*d2r)
+        z = R*np.sin(ll*d2r) * np.ones(t.shape)
+        ax.plot(x, y, z, 'b--', linewidth=1, alpha=0.5)
+
+        # lines of constant longitude
+        x = R*np.cos(ll*d2r)*np.cos(t)
+        y = R*np.sin(ll*d2r)*np.cos(t)
+        z = R*np.sin(t) * np.ones(t.shape)
+        ax.plot(x, y, z, 'b--', linewidth=1, alpha=0.5)
+
+    # ax.plot([0, 0], [0, 0], [-R, R], '.b-')  # polar axis
+
+
+def plot_3d_sphere(ax, shapes):
+    for shape in shapes:
+        lon, lat = zip(*shape)
+        lon = np.array(lon)
+        lat = np.array(lat)
+        x = R * np.cos(lon * d2r) * np.cos(lat * d2r)
+        y = R * np.sin(lon * d2r) * np.cos(lat * d2r)
+        z = R * np.sin(lat * d2r)
+
+        ax.plot(x, y, z, 'k-', linewidth=1)
+
+
+def plot_2d_latlon(ax, shapes):
+    for shape in shapes:
+        lon, lat = zip(*shape)
+        lon = np.array(lon)
+        lat = np.array(lat)
+        ax.plot(lon, lat, 'k-', linewidth=1)
+
+
+def filter_country_geojson(geojson, name_whitelist=None, count_thresh=0, area_thresh=100000, DS=10):
+    # returns a list of shapes (list of lists of points).
+    #
+    # geojson file contains a list of administrative areas (countries, but also antarctica, etc)
+    # each country contains a list of shapes, one for each contiguous land mass that belongs to the admin
+    #
+    # high resolution file: 544740 points / 4001 shapes / 246 countries
+    # low resolution file : 10565 points /  285 shapes / 176 countrie
+    #
+    # so some amount of filtering needs to be done
 
     counts_total = {
-        'countries': len(geoj['features']),
+        'countries': len(geojson['features']),
         'shapes': 0,
         'points': 0,
     }
@@ -51,15 +143,17 @@ def main():
         'points': 0,
     }
 
-
-    for country in geoj['features']:
+    filtered_shapes = []
+    for country in geojson['features']:
+        pop_est = country['properties']['pop_est']
         name = country['properties']['name']
         continent = country['properties']['continent']
 
-        if country_whitelist and name not in country_whitelist:
+
+        if name_whitelist and name not in name_whitelist:
             continue
 
-        pop_est = country['properties']['pop_est']
+
         typ = country['geometry']['type']
         # typ=Polygon -> list of lists of points
         # typ=MultiPolygon -> list of lists of lists of points
@@ -87,87 +181,24 @@ def main():
 
         for n, (shape, area) in enumerate(shapes_by_area):
             # filter logic
-            if n > 0 and area < 100000:
+            if n > count_thresh and area < area_thresh:
                 # for each country, keep the N largest shapes, and all shapes above an area threshold
                 continue
 
             if verbosity > 2:
                 print('  %s  %7.2f km^2  %s' % (n, area, len(shape[0])))
 
-            # downsample and close-loop the path
-            lon, lat = zip(*shape[0])
-            lon_ds = np.array(lon[::DS])
-            lat_ds = np.array(lat[::DS])
-            lon_ds = np.hstack((lon_ds, lon_ds[0]))
-            lat_ds = np.hstack((lat_ds, lat_ds[0]))
+            shape_ds = shape[0][::DS]  # downsample
+            shape_ds.append(shape_ds[0]) # ensure closed loop
+            filtered_shapes.append(shape_ds)
             counts_filtered['shapes'] += 1
-            counts_filtered['points'] += len(lat_ds)
-
-            # plot
-            if plot_mode == '2d-latlon':
-                ax.plot(lon_ds, lat_ds, 'k-', linewidth=1)
-
-            if plot_mode == '3d-sphere':
-                x = R * np.cos(lon_ds * d2r) * np.cos(lat_ds * d2r)
-                y = R * np.sin(lon_ds * d2r) * np.cos(lat_ds * d2r)
-                z = R * np.sin(lat_ds * d2r)
-
-                ax.plot(x, y, z, 'k-', linewidth=1)
-
-            if plot_mode == '3d-icosahedron':
-                x = R * np.cos(lon_ds * d2r) * np.cos(lat_ds * d2r)
-                y = R * np.sin(lon_ds * d2r) * np.cos(lat_ds * d2r)
-                z = R * np.sin(lat_ds * d2r)
-                ax.plot(x, y, z, 'k-', linewidth=1)
-
-                if PLOT_GEO_GRID:
-                    # plot lat/lon lines for visual reference
-                    t = np.linspace(0, 2*np.pi, 64)
-                    d = 30
-                    for ll in np.arange(-90, 91, d):
-                        # lines of constant latitude
-                        x = R*np.cos(t)*np.cos(ll*d2r)
-                        y = R*np.sin(t)*np.cos(ll*d2r)
-                        z = R*np.sin(ll*d2r) * np.ones(t.shape)
-                        ax.plot(x, y, z, 'b--', linewidth=1, alpha=0.5)
-                        # lines of constant longitude
-                        x = R*np.cos(ll*d2r)*np.cos(t)
-                        y = R*np.sin(ll*d2r)*np.cos(t)
-                        z = R*np.sin(t) * np.ones(t.shape)
-                        ax.plot(x, y, z, 'b--', linewidth=1, alpha=0.5)
-                    # ax.plot([0, 0], [0, 0], [-R, R], '.b-')  # poles
-
-
-
-                # plot polyhedron
-                pv, pe = icosahedron(circumradius=R)
-                # TODO: rotate icosahedron to achieve contiguous landmass dymaxion projection
-                #       and/or rotate so that icosahedron vertices are at earth poles
-                for e in pe:
-                    v0, v1 = pv[e[0]], pv[e[1]]
-                    ax.plot(*zip(v0, v1), 'r--', linewidth=1, alpha=0.5)
-
-                # TODO project country shapes onto polyhedron
-                # for each face of polyhedron:
-                # - define frustum bounds check function
-                # - compute equation of plane
-                # (these steps should be applied to a generic polyhedron,
-                # not computed analytically for the predefined vertices,
-                # so we can rotate the polyhedron arbitrarily first)
-
-                # for each point in the shape:
-                # - use frustum bounds checks to identify corresponding face
-                # - use equation of plane to project point onto plane
-
-                # draw the projected points instead
+            counts_filtered['points'] += len(shape_ds)
 
     if verbosity > -1:
         print('total   %6d points / %4d shapes / %3d countries' % (counts_total['points'], counts_total['shapes'], counts_total['countries']))
         print('fitered %6d points / %4d shapes / %3d countries' % (counts_filtered['points'], counts_filtered['shapes'], counts_total['countries']))
 
-
-
-    plt.show()
+    return filtered_shapes
 
 
 
