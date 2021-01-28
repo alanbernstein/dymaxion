@@ -2,11 +2,10 @@ from math import pi, cos, radians
 
 import numpy as np
 
-def geo_polyarea(lon, lat):
-    # returns the area (in m^2) of a polygon defined in longitude,latitude,
-    # via simple equal-area projection onto earth-sized sphere
-    earth_radius = 6371009 # in meters
-    lat_dist = pi * earth_radius / 180.0
+def sphere_polyarea(lon, lat):
+    # returns the area of a polygon defined in longitude,latitude,
+    # via simple equal-area projection onto a unit sphere
+    lat_dist = pi / 180.0
 
     y = [la * lat_dist for la in lat]
     x = [lo * lat_dist * cos(radians(la)) for la, lo in zip(lat, lon)]
@@ -15,6 +14,23 @@ def geo_polyarea(lon, lat):
     return abs(a)/2.0
 
 
+def rotation_matrix_from_axis_angle(axis, angle):
+    # TODO
+    return np.array([])
+
+
+def rotation_matrix_from_euler(**kwargs):
+    # args are x,y,z, but accepted in any order, and composed in that order
+    R = np.eye(3)
+    for k, v in kwargs.items():
+        c, s = np.cos(v), np.sin(v)
+        if k == 'x':
+            R = R @ [[1, 0, 0], [0, c, -s], [0, s, c]]
+        if k == 'y':
+            R = R @ [[c, 0, s], [0, 1, 0], [-s, 0, c]]
+        if k == 'z':
+            R = R @ [[c, -s, 0], [s, c, 0], [0, 0, 1]]
+    return R
 
 
 class DymaxionProjection(object):
@@ -37,6 +53,10 @@ class DymaxionProjection(object):
 
     def project_polar(self, theta, phi):
         return [0, 0, 0]
+
+    def project_predistort(self, xyz):
+        # TODO
+        pass
 
     def project_cartesian(self, xyz):
         # for each point in the shape:
