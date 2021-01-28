@@ -2,16 +2,17 @@ import json
 
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
+from matplotlib import colors as mcolors
 import numpy as np
 
 from geometry import geo_polyarea, icosahedron
 
+# TODO: select other islands (like hawaii) from world-110m
+# TODO: major lakes and seas
 
-# TODO: russia mainland isn't contiguous (dateline)
-# TODO: combine into continents (metadata has this info)
+# data_spec = {'fname': 'world-110m.geo.json', pmap: {'name': 'name', 'continent': 'continent'}}
+data_spec = {'fname': 'continents.geo.json', 'pmap': {'name': 'CONTINENT', 'continent': 'CONTINENT'}}
 
-
-borders_file = 'world-110m.geo.json'
 
 d2r = np.pi / 180
 r_earth_mi = 3958.8  # radius of actual earth
@@ -30,7 +31,7 @@ name_whitelist = []
 # @pm
 def main():
 
-    with open(borders_file, 'r') as f:
+    with open(data_spec['fname'], 'r') as f:
         geoj = json.load(f)
 
     shapes = filter_country_geojson(geoj, name_whitelist, count_thresh, area_thresh, DS)
@@ -50,6 +51,12 @@ def main():
     plt.show()
 
 
+def random_color():
+    hue = np.random.random()
+    return mcolors.hsv_to_rgb([hue, 1, .6])
+    # return np.random.random((1, 3))
+
+
 def plot_3d_icosahedron(ax, shapes):
     for shape in shapes:
         lon, lat = zip(*shape)
@@ -58,15 +65,9 @@ def plot_3d_icosahedron(ax, shapes):
         x = R * np.cos(lon * d2r) * np.cos(lat * d2r)
         y = R * np.sin(lon * d2r) * np.cos(lat * d2r)
         z = R * np.sin(lat * d2r)
-        ax.plot(x, y, z, 'k-', linewidth=1)
+        color = random_color()
+        ax.plot(x, y, z, '-', color=color, linewidth=1)
 
-        # plot polyhedron
-        pv, pe = icosahedron(circumradius=R)
-        # TODO: rotate icosahedron to achieve contiguous landmass dymaxion projection
-        #       and/or rotate so that icosahedron vertices are at earth poles
-        for e in pe:
-            v0, v1 = pv[e[0]], pv[e[1]]
-            ax.plot(*zip(v0, v1), 'r--', linewidth=1, alpha=0.5)
 
         # TODO project country shapes onto polyhedron
         # for each face of polyhedron:
@@ -76,11 +77,14 @@ def plot_3d_icosahedron(ax, shapes):
         # not computed analytically for the predefined vertices,
         # so we can rotate the polyhedron arbitrarily first)
 
-        # for each point in the shape:
-        # - use frustum bounds checks to identify corresponding face
-        # - use equation of plane to project point onto plane
-
-        # draw the projected points instead
+    # plot polyhedron
+    R_ci = 1.258408572364819 # ratio of icosahedron circumradius/inradius
+    # TODO: rotate icosahedron to achieve contiguous landmass dymaxion projection
+    #       and/or rotate so that icosahedron vertices are at earth poles
+    for e in pe:
+        v0, v1 = pv[e[0]], pv[e[1]]
+        ax.plot(*zip(v0, v1), 'k--', linewidth=1, alpha=1)
+        ax.plot(*zip(v0*R_ci, v1*R_ci), 'k-', linewidth=1, alpha=1)
 
 
 def plot_geo_grid(ax, d=30):
@@ -145,21 +149,23 @@ def filter_country_geojson(geojson, name_whitelist=None, count_thresh=0, area_th
 
     filtered_shapes = []
     for country in geojson['features']:
-        pop_est = country['properties']['pop_est']
-        name = country['properties']['name']
-        continent = country['properties']['continent']
+        # map inconsistent geojson property keys to a consistent format
+        props = {}
+        for k, v in data_spec['pmap'].items():
+            props[k] = country['properties'][v]
+        name = props['name']
+        continent = props['continent']
 
-
+        # apply whitelist filter
         if name_whitelist and name not in name_whitelist:
             continue
 
-
+        # force same structure for all shape types
         typ = country['geometry']['type']
         # typ=Polygon -> list of lists of points
         # typ=MultiPolygon -> list of lists of lists of points
         shapes = country['geometry']['coordinates']
         if typ == 'Polygon':
-            # force same shapes structure for all types
             shapes = [shapes]
 
         num_shapes = len(shapes)
@@ -179,6 +185,7 @@ def filter_country_geojson(geojson, name_whitelist=None, count_thresh=0, area_th
 
         shapes_by_area = [(s, a) for a, s in sorted(zip(areas_real_km2, shapes), reverse=True)]
 
+        # add acceptable shapes to result list
         for n, (shape, area) in enumerate(shapes_by_area):
             # filter logic
             if n > count_thresh and area < area_thresh:
