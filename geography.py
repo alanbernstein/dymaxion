@@ -10,7 +10,7 @@ def filter_geojson(geojson, prop_map, name_whitelist=None, count_thresh=0, area_
     # high resolution file: 544740 points / 4001 shapes / 246 countries
     # low resolution file : 10565 points /  285 shapes / 176 countrie
     #
-    # so some amount of filtering needs to be done
+    # so some amount of filtering needs to be done, at least for plotting
 
     counts_total = {
         'countries': len(geojson['features']),

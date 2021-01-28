@@ -48,6 +48,8 @@ def main():
     Rot = rotation_matrix_from_euler(x=np.pi*-0.03)  # align australia to be contained in a face
     pv = pv @ Rot
     dym = DymaxionProjection(pv, pe, pf)
+    dym.set_projection('simple')
+    # dym.set_projection('predistort')
 
 
     fig = plt.figure()
@@ -60,6 +62,8 @@ def main():
     plot_globe_polyhedron(ax, shapes3d, dym)
     plot_polyhedron(ax, pv, pe)
 
+    plot_cnc_layout(ax, shapes3d, dym)
+
     # auxiliary stuff
     plot_polar_axis(ax)
     ax.view_init(elev=-20, azim=130)
@@ -70,14 +74,12 @@ def main():
     plt.show()
 
 
-def plot_globe_predistort(ax, shapes3d):
-    # plot border shapes projected onto polyhedron of nonzero thickness,
-    # but in such a way that after sanding the polyhedron to a sphere,
-    # the borders have the appropriate shapes for that sphere
+def plot_cnc_layout(ax, shapes3d, dym):
+    # plot the polyhedron net in 2d, with the corresponding projected shapes
     for s in shapes3d:
         color = random_color()
         # ax.plot(s[:,0], s[:,1], s[:,2], '-', color=color, linewidth=1)
-        pxyz, faces = dym.project_predistort(s)
+        pxyz, faces = dym.project(s)
         ax.plot(1.05*pxyz[:,0], 1.05*pxyz[:,1], 1.05*pxyz[:,2], '-', color=color, linewidth=1)
 
 
@@ -86,7 +88,7 @@ def plot_globe_polyhedron(ax, shapes3d, dym):
     for s in shapes3d:
         color = random_color()
         # ax.plot(s[:,0], s[:,1], s[:,2], '-', color=color, linewidth=1)
-        pxyz, faces = dym.project_cartesian(s)
+        pxyz, faces = dym.project(s)
         ax.plot(1.05*pxyz[:,0], 1.05*pxyz[:,1], 1.05*pxyz[:,2], '-', color=color, linewidth=1)
 
 

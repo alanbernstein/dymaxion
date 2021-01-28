@@ -51,17 +51,34 @@ class DymaxionProjection(object):
         self.face_center_mags = np.linalg.norm(self.face_centers, axis=1)
         self.face_unit_normals = self.face_centers / self.face_center_mags[:,None]
 
-    def project_polar(self, theta, phi):
-        return [0, 0, 0]
+        self.projection = 'simple'  # 'simple', 'predistort'
+
+    def set_projection(self, pstring):
+        self.projection = pstring
+
+    def project(self, xyz):
+        if self.projection == 'simple':
+            return self.project_simple(xyz)
+        if self.projection == 'predistort':
+            return self.project_predistort(xyz)
 
     def project_predistort(self, xyz):
+        # plot shapes projected onto polyhedron of nonzero thickness,
+        # but in such a way that after sanding the polyhedron to a sphere,
+        # the shapes match what they should be for the sphere
+
         # TODO
         pass
 
-    def project_cartesian(self, xyz):
+
+    def project_simple(self, xyz):
         # for each point in the shape:
         # - find which face-line has smallest angle, select that plane
-        # - use equation of plane to project point onto plane
+        # - use equation of plane to project point onto polyhedron.
+        #   note this is a "dymaxion projection", which requires finding
+        #   the intersection of a ray and a plane, /not/ the projection of
+        #   that ray onto the plane, as you might mistakenly assume
+        #   thanks to the overloaded term "projection".
 
         pxyz = []
         best_faces = []
