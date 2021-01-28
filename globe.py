@@ -5,7 +5,11 @@ from mpl_toolkits.mplot3d import Axes3D
 from matplotlib import colors as mcolors
 import numpy as np
 
-from geometry import geo_polyarea, icosahedron
+from geometry import (
+    geo_polyarea,
+    icosahedron,
+    DymaxionProjection,
+)
 
 # TODO: select other islands (like hawaii) from world-110m
 # TODO: major lakes and seas
@@ -58,6 +62,14 @@ def random_color():
 
 
 def plot_3d_icosahedron(ax, shapes):
+    pv, pe, pf = icosahedron(circumradius=R)
+    dym = DymaxionProjection(pv, pe, pf)
+
+    # plot polyhedron
+    R_ci = 1.258408572364819 # ratio of icosahedron circumradius/inradius
+    # TODO: rotate icosahedron to achieve contiguous landmass dymaxion projection
+    #       and/or rotate so that icosahedron vertices are at earth poles
+
     for shape in shapes:
         lon, lat = zip(*shape)
         lon = np.array(lon)
@@ -66,25 +78,16 @@ def plot_3d_icosahedron(ax, shapes):
         y = R * np.sin(lon * d2r) * np.cos(lat * d2r)
         z = R * np.sin(lat * d2r)
         color = random_color()
-        ax.plot(x, y, z, '-', color=color, linewidth=1)
+        # ax.plot(x, y, z, '-', color=color, linewidth=1)
+
+        pxyz, faces = dym.project_cartesian(np.vstack((x, y, z)).T)
+        ax.plot(1.05*pxyz[:,0], 1.05*pxyz[:,1], 1.05*pxyz[:,2], '-', color=color, linewidth=1)
 
 
-        # TODO project country shapes onto polyhedron
-        # for each face of polyhedron:
-        # - define frustum bounds check function
-        # - compute equation of plane
-        # (these steps should be applied to a generic polyhedron,
-        # not computed analytically for the predefined vertices,
-        # so we can rotate the polyhedron arbitrarily first)
-
-    # plot polyhedron
-    R_ci = 1.258408572364819 # ratio of icosahedron circumradius/inradius
-    # TODO: rotate icosahedron to achieve contiguous landmass dymaxion projection
-    #       and/or rotate so that icosahedron vertices are at earth poles
     for e in pe:
         v0, v1 = pv[e[0]], pv[e[1]]
-        ax.plot(*zip(v0, v1), 'k--', linewidth=1, alpha=1)
-        ax.plot(*zip(v0*R_ci, v1*R_ci), 'k-', linewidth=1, alpha=1)
+        ax.plot(*zip(v0, v1), 'k-', linewidth=1, alpha=1)
+        # ax.plot(*zip(v0*R_ci, v1*R_ci), 'k-', linewidth=1, alpha=1)
 
 
 def plot_geo_grid(ax, d=30):

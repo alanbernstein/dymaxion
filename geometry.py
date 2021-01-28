@@ -1,11 +1,11 @@
 from math import pi, cos, radians
-import numpy as np
 
-earth_radius = 6371009 # in meters
+import numpy as np
 
 def geo_polyarea(lon, lat):
     # returns the area (in m^2) of a polygon defined in longitude,latitude,
     # via simple equal-area projection onto earth-sized sphere
+    earth_radius = 6371009 # in meters
     lat_dist = pi * earth_radius / 180.0
 
     y = [la * lat_dist for la in lat]
@@ -16,9 +16,86 @@ def geo_polyarea(lon, lat):
 
 
 
+
+class DymaxionProjection(object):
+    # designed to work for a regular icosahedron
+    # should work for any platonic solid, any archimedean solid
+    # and also another class of polyhedra that i don't know a name for:
+    # those that are equivalent to spherical voronoi diagrams - that is,
+    # any point on a face is closer to the central bisector of that face,
+    # than to the central bisector of any other face.
+    # that assumes "central bisector" is well-defined.
+    # TODO: research this ^
+    def __init__(self, vertices, edges, faces):
+        self.vertices = vertices
+        self.edges = edges
+        self.faces = faces
+
+        self.face_centers = np.array([np.mean(vertices[f], axis=0) for f in self.faces])
+        self.face_center_mags = np.linalg.norm(self.face_centers, axis=1)
+        self.face_unit_normals = self.face_centers / self.face_center_mags[:,None]
+
+    def project_polar(self, theta, phi):
+        return [0, 0, 0]
+
+    def project_cartesian(self, xyz):
+        # for each point in the shape:
+        # - find which face-line has smallest angle, select that plane
+        # - use equation of plane to project point onto plane
+
+        pxyz = []
+        best_faces = []
+        for pt in xyz:
+            # figure out which face this point belongs to
+            face_axis_angles = np.arccos(np.sum(pt/np.linalg.norm(pt) * self.face_unit_normals, axis=1))
+            best_face_id = np.argmin(face_axis_angles)
+            best_faces.append(best_face_id)
+
+            # find intersection of line (O, p) with plane with point fc and normal fn
+            fc = self.face_centers[best_face_id] # arbitrary point on plane
+            fn = self.face_unit_normals[best_face_id] # normal to plane
+            s = np.dot(fc, fn)/np.dot(pt, fn)
+            projected = pt * s
+
+            """
+            https://en.wikipedia.org/wiki/Line%E2%80%93plane_intersection#Algebraic_form
+            (p-fc).fn = 0          # (p-p0).n = 0
+            p = 0 + pt*d           # p = l0 + l*d
+            ((pt*d)-fc).fn = 0     # ((l0+l*d)-p0).n = 0
+            (pt*d).fn - fc.fn = 0
+            d * pt.fn - fc.fn = 0
+            d = fc.fn/pt.fn
+            p = pt * d
+            p = pt * fc.fn/pt.fn
+            """
+
+            """
+            # project p onto the face
+            vv = p - fc
+            v_parallel = np.dot(vv, fn) / np.linalg.norm(fn) ** 2 * fn  # component parallel to the normal
+            v_perp = vv - v_parallel  # component perpendicular to the normal
+            projected = fc + v_perp
+            """
+
+            pxyz.append(projected)
+
+
+        return np.array(pxyz), best_faces
+
+
 p = (np.sqrt(5) + 1)/2  # golden ratio
 
-def icosahedron(circumradius=1):
+icosahedron_circumradius_per_side = np.sqrt(p*np.sqrt(5))/2
+icosahedron_inradius_per_side = p**2 / (2 * np.sqrt(3))
+icosahedron_circumradius_per_inradius = icosahedron_circumradius_per_side / icosahedron_inradius_per_side
+
+def icosahedron(circumradius=None, inradius=None):
+    if not circumradius and not inradius:
+        circumradius = 1
+
+    if inradius and not circumradius:
+        circumradius = icosahedron_circumradius_per_inradius * inradius
+
     vertices = np.array([
         [0, p, 1],
         [0, p, -1],
@@ -35,7 +112,50 @@ def icosahedron(circumradius=1):
     ])
     vertices = vertices * circumradius / np.linalg.norm(vertices[0,:])
     edges = select_shortest_edges(vertices)
-    return vertices, edges
+
+    faces = select_triangles(edges)
+
+    return vertices, edges, faces
+
+def cube():
+    vertices = np.array([
+        [-1, -1, -1],
+        [-1, -1, 1],
+        [-1, 1, 1],
+        [-1, 1, -1],
+        [1, -1, -1],
+        [1, -1, 1],
+        [1, 1, 1],
+        [1, 1, -1],
+    ])
+    edges = select_shortest_edges(vertices)
+    faces = [
+        [0, 1, 2, 3],
+        [4, 5, 6, 7],
+        [0, 1, 4, 5],
+        [2, 3, 6, 7],
+        [0, 3, 4, 7],
+        [1, 2, 5, 6],
+    ]
+    return vertices, edges, faces
+
+
+def select_smallest_faces(edges, L):
+    # TODO: will need this for any regular(ish) polyhedra with non-triangular faces
+    # generalization of select_triangles
+    # - find all cycles of length L
+    # - find perimeter of each cycle
+    # - find the minimum perimeter
+    # - select all cycles with minimum perimeter (plus epsilon)
+    pass
+
+def select_triangles(edges):
+    tris = []
+    for i, e1 in enumerate(edges[0:(len(edges)-1)]):
+        for e2 in edges[(i+1):len(edges)]:
+            if e1[0] == e2[0] and (e1[1], e2[1]) in edges:
+                tris.append([e1[0], e1[1], e2[1]])
+    return tris
 
 
 def select_shortest_edges(vertices):
