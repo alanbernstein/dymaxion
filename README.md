@@ -1,5 +1,5 @@
 
-![screenshot](images/screenshot-icosahedron-geogrid.png)
+![screenshot](images/screenshot-dymaxion.png)
 
 # world map
 
