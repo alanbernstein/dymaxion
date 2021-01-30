@@ -1,15 +1,20 @@
 import json
+from pprint import pprint as pp
+from ipdb import set_trace as db
 
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from matplotlib import colors as mcolors
 import numpy as np
 
+
 from geography import filter_geojson
 from geometry import (
     icosahedron,
     DymaxionProjection,
     rotation_matrix_from_euler,
+    rotation_matrix_from_src_dest_vecs,
+    icosahedron_circumradius_per_side,
 )
 
 # TODO: select other islands (like hawaii) from world-110m
@@ -20,6 +25,7 @@ from geometry import (
 # data_spec = {'fname': 'world-110m.geo.json', pmap: {'name': 'name', 'continent': 'continent'}}
 data_spec = {'fname': 'continents.geo.json', 'pmap': {'name': 'CONTINENT', 'continent': 'CONTINENT'}}
 
+PLOT2D, PLOT3D = True, True
 
 d2r = np.pi / 180
 r_ball_in = 10  # planned radius of CNC ball
@@ -43,59 +49,178 @@ def main():
 
     # define polyhedron and projection
     pv, pe, pf = icosahedron(circumradius=R)
-    Rot = np.eye(3)
-    # Rot = rotation_matrix_from_euler(y=np.pi*0.175, z=np.pi*0.0)  # align two icosahedron vertices with poles
-    Rot = rotation_matrix_from_euler(x=np.pi*-0.03)  # align australia to be contained in a face
+    # Rot = np.eye(3)  # default
+    # TODO: define these rotations based on the location of the north pole, and some other lat/lon reference point
+    Rot = rotation_matrix_from_euler(y=np.pi*0.175, z=np.pi*0.0)  # align two icosahedron vertices with earth poles
+    # Rot = rotation_matrix_from_euler(x=np.pi*-0.03)  # align australia to be contained in a face
     pv = pv @ Rot
     dym = DymaxionProjection(pv, pe, pf)
     dym.set_projection('simple')
     # dym.set_projection('predistort')
 
 
-    fig = plt.figure()
-    # ax = fig.add_subplot(111)  # for 2d plots
-    ax = fig.add_subplot(111, projection='3d')  # for 3d plots
+    if PLOT2D:
+        # 2d plots
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        # ax = fig.add_subplot(111, projection='3d')
+        # plot_map_latlon(ax, shapes2d)
+        plot_cnc_layout(ax, shapes3d, dym)
 
-    # globe stuff
-    # plot_map_latlon(ax, shapes2d)
-    # plot_globe_sphere(ax, shapes3d)
-    plot_globe_polyhedron(ax, shapes3d, dym)
-    plot_polyhedron(ax, pv, pe)
 
-    plot_cnc_layout(ax, shapes3d, dym)
+    if PLOT3D:
+        # for 3d plots
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
 
-    # auxiliary stuff
-    plot_polar_axis(ax)
-    ax.view_init(elev=-20, azim=130)
-    # plot_latlon_grid(ax)
-    plt.xlabel('x')
-    plt.xlabel('y')
+        # globe stuff
+        # plot_globe_sphere(ax, shapes3d)
+        plot_globe_polyhedron(ax, shapes3d, dym)
+        plot_polyhedron(ax, pv, pe)
+        plot_polyhedron_labels(ax, pv, pf)
+
+        # auxiliary stuff
+        plot_polar_axis(ax)
+        ax.view_init(elev=-20, azim=130)
+        # plot_latlon_grid(ax)
+        plot_hidden_cube(ax)
+        plt.xlabel('x')
+        plt.xlabel('y')
 
     plt.show()
 
 
+
+def icosahedron_face_transform(fid, verts):
+    # given a face id and the 2d vertex positions,
+    # compute 2d translation and rotations necessary to
+    # move the face, and any shapes it contains, into the
+    # appropriate 2d position to produce a polyhedron net.
+    #
+    # this is a crappy ad-hoc solution, and it's tied to the specific
+    # way that the icosahedron is defined, but it's good enough for now.
+    #
+    # TODO: probably want to automate this for larger polyhedra.
+    L = R/icosahedron_circumradius_per_side  # side length
+
+    p3 = np.pi/3
+    r3_6 = np.sqrt(3)/6
+
+    transmap = {
+        # face_id: [x, y, angle]
+        # for clarity, angle is decomposed into
+        # face_alignment_angle + shape_alignment_angle
+        # with explicit zero values.
+        # south cap faces
+        19: [0, 0, 1*p3 + 2*p3],
+        15: [1, 0, 1*p3 + 0*p3],
+        13: [2, 0, 1*p3 + 4*p3],
+        5:  [3, 0, 1*p3 + 0*p3],
+        7:  [4, 0, 1*p3 + 4*p3],
+        # south equator faces
+        18: [0, 2*r3_6, 0*p3 + 0*p3],
+        9:  [1, 2*r3_6, 0*p3 + 0*p3],
+        14: [2, 2*r3_6, 0*p3 + 4*p3],
+        6:  [3, 2*r3_6, 0*p3 + 2*p3],
+        1:  [4, 2*r3_6, 0*p3 + 0*p3],
+        # north equator faces
+        4:  [0-.5, 3*r3_6, 1*p3 + 4*p3],
+        12: [1-.5, 3*r3_6, 1*p3 + 0*p3],
+        8:  [2-.5, 3*r3_6, 1*p3 + 4*p3],
+        17: [3-.5, 3*r3_6, 1*p3 + 2*p3],
+        0:  [4-.5, 3*r3_6, 1*p3 + 0*p3],
+        # north cap faces
+        2:  [0-.5, 5*r3_6, 0*p3 + 4*p3],
+        10: [1-.5, 5*r3_6, 0*p3 + 2*p3],
+        11: [2-.5, 5*r3_6, 0*p3 + 4*p3],
+        16: [3-.5, 5*r3_6, 0*p3 + 0*p3],
+        3:  [4-.5, 5*r3_6, 0*p3 + 2*p3],
+    }
+
+    verts = verts - np.mean(verts, axis=0)
+    angle = np.arctan2(verts[0, 0], verts[0, 1])
+    x, y, a = transmap[fid]
+    return L * x, L * y, -angle+a
+
+
 def plot_cnc_layout(ax, shapes3d, dym):
     # plot the polyhedron net in 2d, with the corresponding projected shapes
-    for s in shapes3d:
-        color = random_color()
-        # ax.plot(s[:,0], s[:,1], s[:,2], '-', color=color, linewidth=1)
+
+    # split up shapes into segments, based on which face they're on
+    face_segments_map = {n: [] for n in range(20)}
+    # this is a dict of lists, with each list element representing a segment
+    # of a border-shape, that is contained within a single face of the polyhedron.
+    # the list element is a tuple (vertex_list, face_id)
+
+    for n, s in enumerate(shapes3d):
+        # TODO: these are no longer closed loops, fix this. this could normally be
+        # solved by appending x[0] to x, but the faceted projection of shapes
+        # with variable point spacing means that some shapes can get cut through
+        # long line segments. need to compute true start and end points by
+        # intersecting with the polyhedron edge.
         pxyz, faces = dym.project(s)
-        ax.plot(1.05*pxyz[:,0], 1.05*pxyz[:,1], 1.05*pxyz[:,2], '-', color=color, linewidth=1)
+        starts, lens, values = rlencode(faces)
+        for s, l, v in zip(starts, lens, values):
+            face_segments_map[v].append((pxyz[s:(s+l),:], n))
+
+    # for each face, rotate it and its corresponding segments onto XY plane,
+    # then use the face_transform function to adjust the layout
+    for face_idx, segment_list in face_segments_map.items():
+        fn = dym.face_unit_normals[face_idx]
+        Rot = rotation_matrix_from_src_dest_vecs(fn, [0, 0, 1])
+
+        fv = dym.vertices[dym.faces[face_idx]]
+        fv2 = fv @ Rot.T
+
+        fx, fy, fr = icosahedron_face_transform(face_idx, fv2)
+        fRot = np.array([[np.cos(fr), -np.sin(fr)], [np.sin(fr), np.cos(fr)]])
+        fv2_oriented = fv2[:, 0:2] @ fRot
+
+        # ax.plot(fx + fv2[[0, 1, 2, 0], 0], fy + fv2[[0, 1, 2, 0],1], fv2[[0, 1, 2, 0],2], 'k-')
+        ax.plot(fx + fv2_oriented[[0, 1, 2, 0], 0], fy + fv2_oriented[[0, 1, 2, 0],1], 'k-', linewidth=1)
+        # TODO: write out to SVG as well
+        ax.text(fx, fy, face_idx, color='r')
+
+        for segment3d, shape_idx in segment_list:
+            color = colorizer(shape_idx)
+            segment2d = segment3d @ Rot.T
+            segment2d_oriented = segment2d[:, 0:2] @ fRot
+            # ax.plot(fx + shape2d[:,0], fy + shape2d[:,1], shape2d[:,2], '-', color=color)
+            ax.plot(fx + segment2d_oriented[:,0], fy + segment2d_oriented[:,1], '-', color=color, linewidth=1)
+
+        ax.set_aspect('equal')
+
+
+def rlencode(x):
+    # https://gist.github.com/nvictus/66627b580c13068589957d6ab0919e66
+    where = np.flatnonzero
+    x = np.asarray(x)
+    n = len(x)
+
+    starts = np.r_[0, where(~np.isclose(x[1:], x[:-1], equal_nan=True)) + 1]
+    lengths = np.diff(np.r_[starts, n])
+    values = x[starts]
+
+    return starts, lengths, values
+
+
+colormap = {}
+def colorizer(idx=None):
+    # maintains a global map of arbitrary indexes to random colors
+    # for repeatable, distinguishable colors
+    if idx not in colormap:
+        hue = np.random.random()
+        colormap[idx] = mcolors.hsv_to_rgb([hue, 1, .6])
+    return colormap[idx]
 
 
 def plot_globe_polyhedron(ax, shapes3d, dym):
     # plot border shapes projected onto polyhedron
-    for s in shapes3d:
-        color = random_color()
-        # ax.plot(s[:,0], s[:,1], s[:,2], '-', color=color, linewidth=1)
-        pxyz, faces = dym.project(s)
-        ax.plot(1.05*pxyz[:,0], 1.05*pxyz[:,1], 1.05*pxyz[:,2], '-', color=color, linewidth=1)
-
-
-def random_color():
-    hue = np.random.random()
-    return mcolors.hsv_to_rgb([hue, 1, .6])
-    # return np.random.random((1, 3))
+    S = 1.0
+    for n, s in enumerate(shapes3d):
+        color = colorizer(n)
+        pxyz, best_faces = dym.project(s)
+        ax.plot(S*pxyz[:,0], S*pxyz[:,1], S*pxyz[:,2], '-', color=color, linewidth=1)
 
 
 def plot_polyhedron(ax, pv, pe):
@@ -107,23 +232,16 @@ def plot_polyhedron(ax, pv, pe):
         # ax.plot(*zip(v0*R_ci, v1*R_ci), 'k-', linewidth=1, alpha=1)
 
 
+def plot_polyhedron_labels(ax, pv, pf):
+    # text labels of face indexes
+    for n, f in enumerate(pf):
+        fc = np.mean(pv[f], axis=0)
+        ax.text(fc[0], fc[1], fc[2], n, color='r')
+
+
 def plot_polar_axis(ax):
     # plot earth axis for visual reference
     ax.plot([0, 0], [0, 0], [-R, R], '.b-')
-
-
-def plot_latlon_grid(ax, d=30):
-    # plot lat/lon lines for visual reference
-    t = np.linspace(0, 2*np.pi, 64)
-    for ll in np.arange(-90, 91, d):
-        ax.plot(*sphere2cart(R, t/d2r, ll), 'b--', linewidth=1, alpha=0.5)  # constant latitude
-        ax.plot(*sphere2cart(R, ll, t/d2r), 'b--', linewidth=1, alpha=0.5)  # constant longitude
-
-
-def plot_globe_sphere(ax, shapes3d):
-    # plot border shapes projected on sphere
-    for s in shapes3d:
-        ax.plot(s[:,0], s[:,1], s[:,2], 'k-', linewidth=1)
 
 
 def latlon2xyz(shapes2d):
@@ -143,6 +261,31 @@ def sphere2cart(R, lon, lat):
     y = R * np.sin(lon * d2r) * np.cos(lat * d2r)
     z = R * np.sin(lat * d2r)
     return x, y, z
+
+
+def plot_hidden_cube(ax):
+    # plot bounding cube to force better aspect ratio
+    ax.plot(
+        [-R, -R, -R, -R, R, R, R, R],
+        [-R, -R, R, R, -R, -R, R, R],
+        [-R, R, -R, R, -R, R, -R, R],
+        'w.',
+        markersize=1,
+    )
+
+
+def plot_latlon_grid(ax, d=30):
+    # plot lat/lon lines for visual reference
+    t = np.linspace(0, 2*np.pi, 64)
+    for ll in np.arange(-90, 91, d):
+        ax.plot(*sphere2cart(R, t/d2r, ll), 'b--', linewidth=1, alpha=0.5)  # constant latitude
+        ax.plot(*sphere2cart(R, ll, t/d2r), 'b--', linewidth=1, alpha=0.5)  # constant longitude
+
+
+def plot_globe_sphere(ax, shapes3d):
+    # plot border shapes projected on sphere
+    for s in shapes3d:
+        ax.plot(s[:,0], s[:,1], s[:,2], 'k-', linewidth=1)
 
 
 def plot_map_latlon(ax, shapes):

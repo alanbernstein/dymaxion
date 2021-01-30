@@ -1,5 +1,10 @@
 
-![screenshot](images/screenshot-dymaxion.png)
+[Dymaxion](https://en.m.wikipedia.org/wiki/Dymaxion_map) projection in 3d:
+![Dymaxion 3D](images/dymaxion-3d.png)
+
+Unrolled into 2d for printing or CNC:
+![Dymaxion 2D](images/dymaxion-2d.png)
+
 
 # world map
 
@@ -11,8 +16,3 @@ https://geojson-maps.ash.ms/
 
 
 continents data: https://gist.github.com/hrbrmstr/91ea5cc9474286c72838?short_path=f3fde31
-
-## examples
-
-- https://medium.com/@lkhphuc/how-to-plot-a-3d-earth-map-using-basemap-and-matplotlib-2bc026483fe4
-- https://github.com/lkhphuc/Matplotlib-3D-Basemap

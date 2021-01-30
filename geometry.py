@@ -14,9 +14,13 @@ def sphere_polyarea(lon, lat):
     return abs(a)/2.0
 
 
-def rotation_matrix_from_axis_angle(axis, angle):
-    # TODO
-    return np.array([])
+def rotation_matrix_from_src_dest_vecs(src, dest):
+    # https://math.stackexchange.com/questions/180418/calculate-rotation-matrix-to-align-vector-a-to-vector-b-in-3d
+    v = np.cross(src, dest)
+    s = np.linalg.norm(v)
+    c = np.dot(src, dest)
+    vx = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
+    return np.eye(3) + vx + np.dot(vx,vx) * (1-c)/(s**2)
 
 
 def rotation_matrix_from_euler(**kwargs):
@@ -67,7 +71,7 @@ class DymaxionProjection(object):
         # but in such a way that after sanding the polyhedron to a sphere,
         # the shapes match what they should be for the sphere
 
-        # TODO
+        # TODO: project_predistort
         pass
 
 
