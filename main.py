@@ -16,6 +16,8 @@ from geometry import (
     rotation_matrix_from_src_dest_vecs,
     icosahedron_circumradius_per_side,
 )
+from svg import write_svg
+
 
 # TODO: select other islands (like hawaii) from world-110m
 # TODO: major lakes and seas
@@ -25,7 +27,9 @@ from geometry import (
 # data_spec = {'fname': 'world-110m.geo.json', pmap: {'name': 'name', 'continent': 'continent'}}
 data_spec = {'fname': 'continents.geo.json', 'pmap': {'name': 'CONTINENT', 'continent': 'CONTINENT'}}
 
-PLOT2D, PLOT3D = True, True
+SVG, PLOT2D, PLOT3D = True, True, True
+
+svg_filename = 'icosahedron.svg'
 
 d2r = np.pi / 180
 r_ball_in = 10  # planned radius of CNC ball
@@ -51,21 +55,29 @@ def main():
     pv, pe, pf = icosahedron(circumradius=R)
     # Rot = np.eye(3)  # default
     # TODO: define these rotations based on the location of the north pole, and some other lat/lon reference point
-    Rot = rotation_matrix_from_euler(y=np.pi*0.175, z=np.pi*0.0)  # align two icosahedron vertices with earth poles
-    # Rot = rotation_matrix_from_euler(x=np.pi*-0.03)  # align australia to be contained in a face
+    # Rot = rotation_matrix_from_euler(y=np.pi*0.175, z=np.pi*0.0)  # align two icosahedron vertices with earth poles
+    Rot = rotation_matrix_from_euler(x=np.pi*-0.03)  # align australia to be contained in a face
+    # Rot = rotation_matrix_from_euler(???)  # TODO: aligned poles to centers of faces
     pv = pv @ Rot
     dym = DymaxionProjection(pv, pe, pf)
     dym.set_projection('simple')
     # dym.set_projection('predistort')
 
 
+    cnc_layout = generate_cnc_layout(shapes3d, dym)
     if PLOT2D:
         # 2d plots
         fig = plt.figure()
         ax = fig.add_subplot(111)
         # ax = fig.add_subplot(111, projection='3d')
         # plot_map_latlon(ax, shapes2d)
-        plot_cnc_layout(ax, shapes3d, dym)
+
+        plot_layers(ax, cnc_layout)
+        ax.set_aspect('equal')
+
+    if SVG:
+        write_svg(cnc_layout, svg_filename)
+        # TODO: write dxf https://pypi.org/project/ezdxf/0.6.2/
 
 
     if PLOT3D:
@@ -106,35 +118,37 @@ def icosahedron_face_transform(fid, verts):
     p3 = np.pi/3
     r3_6 = np.sqrt(3)/6
 
+    x0, y0 = 11/L, 7/L  # SVG doesn't like negative coordinates
+
     transmap = {
         # face_id: [x, y, angle]
         # for clarity, angle is decomposed into
         # face_alignment_angle + shape_alignment_angle
         # with explicit zero values.
         # south cap faces
-        19: [0, 0, 1*p3 + 2*p3],
-        15: [1, 0, 1*p3 + 0*p3],
-        13: [2, 0, 1*p3 + 4*p3],
-        5:  [3, 0, 1*p3 + 0*p3],
-        7:  [4, 0, 1*p3 + 4*p3],
+        19: [x0 + 0, y0 + 0, 1*p3 + 2*p3],
+        15: [x0 + 1, y0 + 0, 1*p3 + 0*p3],
+        13: [x0 + 2, y0 + 0, 1*p3 + 4*p3],
+        5:  [x0 + 3, y0 + 0, 1*p3 + 0*p3],
+        7:  [x0 + 4, y0 + 0, 1*p3 + 4*p3],
         # south equator faces
-        18: [0, 2*r3_6, 0*p3 + 0*p3],
-        9:  [1, 2*r3_6, 0*p3 + 0*p3],
-        14: [2, 2*r3_6, 0*p3 + 4*p3],
-        6:  [3, 2*r3_6, 0*p3 + 2*p3],
-        1:  [4, 2*r3_6, 0*p3 + 0*p3],
+        18: [x0 + 0, y0 + 2*r3_6, 0*p3 + 0*p3],
+        9:  [x0 + 1, y0 + 2*r3_6, 0*p3 + 0*p3],
+        14: [x0 + 2, y0 + 2*r3_6, 0*p3 + 4*p3],
+        6:  [x0 + 3, y0 + 2*r3_6, 0*p3 + 2*p3],
+        1:  [x0 + 4, y0 + 2*r3_6, 0*p3 + 0*p3],
         # north equator faces
-        4:  [0-.5, 3*r3_6, 1*p3 + 4*p3],
-        12: [1-.5, 3*r3_6, 1*p3 + 0*p3],
-        8:  [2-.5, 3*r3_6, 1*p3 + 4*p3],
-        17: [3-.5, 3*r3_6, 1*p3 + 2*p3],
-        0:  [4-.5, 3*r3_6, 1*p3 + 0*p3],
+        4:  [x0 + 0-.5, y0 + 3*r3_6, 1*p3 + 4*p3],
+        12: [x0 + 1-.5, y0 + 3*r3_6, 1*p3 + 0*p3],
+        8:  [x0 + 2-.5, y0 + 3*r3_6, 1*p3 + 4*p3],
+        17: [x0 + 3-.5, y0 + 3*r3_6, 1*p3 + 2*p3],
+        0:  [x0 + 4-.5, y0 + 3*r3_6, 1*p3 + 0*p3],
         # north cap faces
-        2:  [0-.5, 5*r3_6, 0*p3 + 4*p3],
-        10: [1-.5, 5*r3_6, 0*p3 + 2*p3],
-        11: [2-.5, 5*r3_6, 0*p3 + 4*p3],
-        16: [3-.5, 5*r3_6, 0*p3 + 0*p3],
-        3:  [4-.5, 5*r3_6, 0*p3 + 2*p3],
+        2:  [x0 + 0-.5, y0 + 5*r3_6, 0*p3 + 4*p3],
+        10: [x0 + 1-.5, y0 + 5*r3_6, 0*p3 + 2*p3],
+        11: [x0 + 2-.5, y0 + 5*r3_6, 0*p3 + 4*p3],
+        16: [x0 + 3-.5, y0 + 5*r3_6, 0*p3 + 0*p3],
+        3:  [x0 + 4-.5, y0 + 5*r3_6, 0*p3 + 2*p3],
     }
 
     verts = verts - np.mean(verts, axis=0)
@@ -143,7 +157,7 @@ def icosahedron_face_transform(fid, verts):
     return L * x, L * y, -angle+a
 
 
-def plot_cnc_layout(ax, shapes3d, dym):
+def generate_cnc_layout(shapes3d, dym):
     # plot the polyhedron net in 2d, with the corresponding projected shapes
 
     # split up shapes into segments, based on which face they're on
@@ -165,6 +179,10 @@ def plot_cnc_layout(ax, shapes3d, dym):
 
     # for each face, rotate it and its corresponding segments onto XY plane,
     # then use the face_transform function to adjust the layout
+    edge_paths = []
+    border_paths = []
+    label_locs = []
+    label_texts = []
     for face_idx, segment_list in face_segments_map.items():
         fn = dym.face_unit_normals[face_idx]
         Rot = rotation_matrix_from_src_dest_vecs(fn, [0, 0, 1])
@@ -176,19 +194,70 @@ def plot_cnc_layout(ax, shapes3d, dym):
         fRot = np.array([[np.cos(fr), -np.sin(fr)], [np.sin(fr), np.cos(fr)]])
         fv2_oriented = fv2[:, 0:2] @ fRot
 
-        # ax.plot(fx + fv2[[0, 1, 2, 0], 0], fy + fv2[[0, 1, 2, 0],1], fv2[[0, 1, 2, 0],2], 'k-')
-        ax.plot(fx + fv2_oriented[[0, 1, 2, 0], 0], fy + fv2_oriented[[0, 1, 2, 0],1], 'k-', linewidth=1)
-        # TODO: write out to SVG as well
-        ax.text(fx, fy, face_idx, color='r')
+        edge_paths.append(np.vstack((
+            fx + fv2_oriented[[0, 1, 2, 0], 0],
+            fy + fv2_oriented[[0, 1, 2, 0], 1],
+        )).T)
+
+        label_locs.append([fx, fy])
+        label_texts.append('%s' % face_idx)
 
         for segment3d, shape_idx in segment_list:
             color = colorizer(shape_idx)
             segment2d = segment3d @ Rot.T
             segment2d_oriented = segment2d[:, 0:2] @ fRot
-            # ax.plot(fx + shape2d[:,0], fy + shape2d[:,1], shape2d[:,2], '-', color=color)
-            ax.plot(fx + segment2d_oriented[:,0], fy + segment2d_oriented[:,1], '-', color=color, linewidth=1)
+            border_paths.append(np.vstack((
+                fx + segment2d_oriented[:,0],
+                fy + segment2d_oriented[:,1],
+            )).T)
 
-        ax.set_aspect('equal')
+
+    layers = [
+        {
+            'desc': 'face-edges',
+            'paths': edge_paths,
+            'action': 'cut',
+            'svg_kwargs': {
+                'stroke': 'black',
+                'fill-opacity': 0,
+                'stroke_width': 0.1,
+            },
+            'plot_kwargs': {'color': 'k'},
+            'type': 'polyline',
+        },
+        {
+            'desc': 'continent-borders',
+            'paths': border_paths,
+            'action': 'cut',
+            'svg_kwargs': {
+                'stroke': 'red',
+                'fill-opacity': 0,
+                'stroke_width': 0.1,
+            },
+            'plot_kwargs': {'color': 'r'},
+            'type': 'polyline',
+        },
+        {
+            'desc': 'face-labels',
+            'pts': label_locs,
+            'labels': label_texts,
+            'type': 'text',
+            'plot_kwargs': {'color': 'b'},
+        }
+    ]
+
+    return layers
+
+
+def plot_layers(ax, layers):
+    for l in layers:
+        # db()
+        if l['type'] == 'polyline':
+            for p in l['paths']:
+                ax.plot(p[:,0], p[:,1], **l['plot_kwargs'])
+        if l['type'] == 'text':
+            for p, txt in zip(l['pts'], l['labels']):
+                ax.text(p[0], p[1], txt, **l['plot_kwargs'])
 
 
 def rlencode(x):

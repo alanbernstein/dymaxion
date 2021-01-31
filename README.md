@@ -1,5 +1,5 @@
 
-[Dymaxion](https://en.m.wikipedia.org/wiki/Dymaxion_map) projection in 3d:
+[Dymaxion](https://en.wikipedia.org/wiki/Dymaxion_map) projection in 3d:
 ![Dymaxion 3D](images/dymaxion-3d.png)
 
 Unrolled into 2d for printing or CNC:
