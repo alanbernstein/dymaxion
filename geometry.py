@@ -173,6 +173,31 @@ class DymaxionProjection(object):
         return np.array(pxyz), best_faces
 
 
+def cube():
+    vertices = np.array([
+        [-1, -1, -1],
+        [-1, -1, 1],
+        [-1, 1, 1],
+        [-1, 1, -1],
+        [1, -1, -1],
+        [1, -1, 1],
+        [1, 1, 1],
+        [1, 1, -1],
+    ])
+    edges = select_shortest_edges(vertices)
+    faces = [
+        [0, 1, 2, 3],
+        [4, 5, 6, 7],
+        [0, 1, 4, 5],
+        [2, 3, 6, 7],
+        [0, 3, 4, 7],
+        [1, 2, 5, 6],
+    ]
+    return vertices, edges, faces
+
+
+
+
 p = (np.sqrt(5) + 1)/2  # golden ratio
 
 icosahedron_circumradius_per_side = np.sqrt(p*np.sqrt(5))/2
@@ -207,26 +232,40 @@ def icosahedron(circumradius=None, inradius=None):
 
     return vertices, edges, faces
 
-def cube():
-    vertices = np.array([
-        [-1, -1, -1],
-        [-1, -1, 1],
-        [-1, 1, 1],
-        [-1, 1, -1],
-        [1, -1, -1],
-        [1, -1, 1],
-        [1, 1, 1],
-        [1, 1, -1],
-    ])
-    edges = select_shortest_edges(vertices)
-    faces = [
-        [0, 1, 2, 3],
-        [4, 5, 6, 7],
-        [0, 1, 4, 5],
-        [2, 3, 6, 7],
-        [0, 3, 4, 7],
-        [1, 2, 5, 6],
+
+def truncated_icosahedron(circumradius=None):
+    v0 = [
+        [0, 1, 3*p],
+        [0, 1, -3*p],
+        [0, -1, 3*p],
+        [0, -1, -3*p],
+
+        [1, 2+p, 2*p],
+        [1, 2+p, -2*p],
+        [1, -2-p, 2*p],
+        [1, -2-p, -2*p],
+        [-1, 2+p, 2*p],
+        [-1, 2+p, -2*p],
+        [-1, -2-p, 2*p],
+        [-1, -2-p, -2*p],
+
+        [p, 2, 2*p+1],
+        [p, 2, -2*p-1],
+        [p, -2, 2*p+1],
+        [p, -2, -2*p-1],
+        [-p, 2, 2*p+1],
+        [-p, 2, -2*p-1],
+        [-p, -2, 2*p+1],
+        [-p, -2, -2*p-1],
     ]
+    # generate all even permutations of each of ^
+    v1 = [[x[2], x[0], x[1]] for x in v0]
+    v2 = [[x[1], x[2], x[0]] for x in v0]
+    vertices = np.array(v0 + v1 + v2)
+
+    edges = select_shortest_edges(vertices)
+
+    faces = []
     return vertices, edges, faces
 
 
