@@ -265,8 +265,75 @@ def truncated_icosahedron(circumradius=None):
 
     edges = select_shortest_edges(vertices)
 
-    faces = []
+    faces = select_planar_sets(vertices, edges)
     return vertices, edges, faces
+
+
+def select_planar_sets(v, edges):
+    # given vertices v, edges e
+    # find all planar sets of vertices (faces)
+
+    r_edges = [[x[1], x[0]] for x in edges]  # reversed edges
+    d_edges = edges + r_edges  # directed edges
+
+    faces = []
+
+    while d_edges:  # face loop
+        # print('face #%d' % (len(faces)))
+        face = list(d_edges[0])  # initialize a face with an arbitrarily chosen item from the list of directed edges
+        # print('  edge 0: 0: [%d, %d]' % (face[0], face[1]))
+        del(d_edges[0])  # remote it from the list
+        next = False
+
+        while True:  # edge loop
+            # find all other edges that start at the end of the current face path (except the backtrack)
+            ei = [k for k, edge in enumerate(d_edges) if edge[0] == face[-1] and edge[1] != face[-2]]
+
+            # choose the clockwisest edge to follow.
+            # 1. compute the cross product of the previous edge and the next edge
+            # 2. compute the dot product of that and the "vertex normal"
+            # 3. choose the edge with the biggest dot product
+            # this might only work for polyhedra with exactly 3 edges per node.
+            choices = []
+            for n, eid in enumerate(ei):
+                cc = np.cross(v[face[-2]]-v[face[-1]], v[d_edges[eid][0]]-v[d_edges[eid][1]])
+                mm = np.dot(cc, v[face[-1]])
+                turn_angle = 0
+                # TODO instead of this dot product,  find the turn angle, in a coordinate system where:
+                # 1. face[-2] -> face[-1] is the x axis
+                # 2. vertex normal is the z axis
+                choices.append((n, mm))
+
+            choices.sort(key=lambda x: -x[1])
+            n = choices[0][0]
+
+            face.append(d_edges[ei[n]][1])  # add it to the face
+
+            # print('  edge %d: %d: [%d, %d]' % (len(face)-2, n, face[-2], face[-1]))
+            if len(face) > 7:
+                import ipdb; ipdb.set_trace()
+
+            del(d_edges[ei[n]])  # remove it from the list
+            if face[0] == face[-1]:
+                # face cycle is complete, move on
+                faces.append(face)
+                # print('  done: %s' % face)
+                break
+
+    return faces
+
+
+def coplanar(v, e1, e2):
+    # p = p1 + x*d1
+    # p = p2 + y*d2
+    # (p1-p2) . (d1 x d2) = 0  # coplanar condition
+
+    v11, v12 = v[e1[0]], v[e1[1]]
+    v21, v22 = v[e2[0]], v[e2[1]]
+    z = np.dot(v11 - v21, np.cross(v12-v11, v22-v21))
+    return abs(z) < 1e-6
+
+
 
 
 def select_smallest_faces(edges, L):
