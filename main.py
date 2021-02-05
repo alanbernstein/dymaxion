@@ -58,13 +58,18 @@ def main():
     # Rot = rotation_matrix_from_euler(y=np.pi*0.175, z=np.pi*0.0)  # align two icosahedron vertices with earth poles
     Rot = rotation_matrix_from_euler(x=np.pi*-0.03)  # align australia to be contained in a face
     # Rot = rotation_matrix_from_euler(???)  # TODO: aligned poles to centers of faces
+    # Rot = rotation_matrix_from_euler(???)  # TODO: minimal land disruption
     pv = pv @ Rot
     dym = DymaxionProjection(pv, pe, pf)
+
+
     dym.set_projection('simple')
-    # dym.set_projection('predistort')
+    cnc_layout_simple = generate_cnc_layout(shapes3d, dym)
 
+    dym.set_projection('predistort')
+    cnc_layout_predistort = generate_cnc_layout(shapes3d, dym)
+    cnc_layout_predistort[1]['plot_kwargs']['color'] = 'g'
 
-    cnc_layout = generate_cnc_layout(shapes3d, dym)
     if PLOT2D:
         # 2d plots
         fig = plt.figure()
@@ -72,7 +77,8 @@ def main():
         # ax = fig.add_subplot(111, projection='3d')
         # plot_map_latlon(ax, shapes2d)
 
-        plot_layers(ax, cnc_layout)
+        plot_layers(ax, cnc_layout_simple)
+        plot_layers(ax, cnc_layout_predistort)
         ax.set_aspect('equal')
 
     if SVG:
@@ -86,8 +92,10 @@ def main():
         ax = fig.add_subplot(111, projection='3d')
 
         # globe stuff
-        # plot_globe_sphere(ax, shapes3d)
+        plot_globe_sphere(ax, shapes3d)
         plot_globe_polyhedron(ax, shapes3d, dym)
+        #dym.set_projection('predistort')
+        #plot_globe_polyhedron(ax, shapes3d, dym)
         plot_polyhedron(ax, pv, pe)
         plot_polyhedron_labels(ax, pv, pf)
 
@@ -98,6 +106,9 @@ def main():
         plot_hidden_cube(ax)
         plt.xlabel('x')
         plt.xlabel('y')
+
+        fig.tight_layout()
+        fig.subplots_adjust(left=-0.5, right=1.5)
 
     plt.show()
 
@@ -167,11 +178,17 @@ def generate_cnc_layout(shapes3d, dym):
     # the list element is a tuple (vertex_list, face_id)
 
     for n, s in enumerate(shapes3d):
-        # TODO: these are no longer closed loops, fix this. this could normally be
-        # solved by appending x[0] to x, but the faceted projection of shapes
-        # with variable point spacing means that some shapes can get cut through
-        # long line segments. need to compute true start and end points by
-        # intersecting with the polyhedron edge.
+        # TODO: the ends of the paths may not reach all the way to the polyhedron
+        # edges; need to compute the /path/ intersection with the polyhedron edge,
+        # and add to both start and end of path.
+        # TODO: these are no longer closed loops. there are several cases:
+        # - connect start to end
+        # - connect start - polyhedron_vertex - end
+        # - connect start - polyhedron-vertex - polyhedron-vertex - end
+        # - connect start1 - end2  AND  start2 - end1
+        # to understand which case we're in, really need to consider the
+        # /solid/ intersection between the full shape and the polyhedron face.
+        # this might be tricky.
         pxyz, faces = dym.project(s)
         starts, lens, values = rlencode(faces)
         for s, l, v in zip(starts, lens, values):
@@ -203,13 +220,15 @@ def generate_cnc_layout(shapes3d, dym):
         label_texts.append('%s' % face_idx)
 
         for segment3d, shape_idx in segment_list:
-            color = colorizer(shape_idx)
+            # color = colorizer(shape_idx)
             segment2d = segment3d @ Rot.T
             segment2d_oriented = segment2d[:, 0:2] @ fRot
             border_paths.append(np.vstack((
                 fx + segment2d_oriented[:,0],
                 fy + segment2d_oriented[:,1],
             )).T)
+
+            # TODO: apply maximum_curvature limit
 
 
     layers = [
@@ -234,7 +253,7 @@ def generate_cnc_layout(shapes3d, dym):
                 'fill-opacity': 0,
                 'stroke_width': 0.1,
             },
-            'plot_kwargs': {'color': 'r'},
+            'plot_kwargs': {'color': 'r', 'linestyle': 'None', 'marker': '.', 'markersize': 2},
             'type': 'polyline',
         },
         {
@@ -289,16 +308,16 @@ def plot_globe_polyhedron(ax, shapes3d, dym):
     for n, s in enumerate(shapes3d):
         color = colorizer(n)
         pxyz, best_faces = dym.project(s)
-        ax.plot(S*pxyz[:,0], S*pxyz[:,1], S*pxyz[:,2], '-', color=color, linewidth=1)
+        ax.plot(S*pxyz[:,0], S*pxyz[:,1], S*pxyz[:,2], '.', markersize=1, color=color, linewidth=1)
 
 
+R_ci = 1.258408572364819 # ratio of icosahedron circumradius/inradius
 def plot_polyhedron(ax, pv, pe):
     # plot wireframe of polyhedron
-    R_ci = 1.258408572364819 # ratio of icosahedron circumradius/inradius
     for e in pe:
         v0, v1 = pv[e[0]], pv[e[1]]
         ax.plot(*zip(v0, v1), 'k-', linewidth=1, alpha=1)
-        # ax.plot(*zip(v0*R_ci, v1*R_ci), 'k-', linewidth=1, alpha=1)
+        # ax.plot(*zip(v0/R_ci, v1/R_ci), 'k-', linewidth=1, alpha=1)
 
 
 def plot_polyhedron_labels(ax, pv, pf):
@@ -353,8 +372,9 @@ def plot_latlon_grid(ax, d=30):
 
 def plot_globe_sphere(ax, shapes3d):
     # plot border shapes projected on sphere
-    for s in shapes3d:
-        ax.plot(s[:,0], s[:,1], s[:,2], 'k-', linewidth=1)
+    for n, s in enumerate(shapes3d):
+        color = colorizer(n)
+        ax.plot(s[:,0]/R_ci, s[:,1]/R_ci, s[:,2]/R_ci, '-', color=color, linewidth=1)
 
 
 def plot_map_latlon(ax, shapes):

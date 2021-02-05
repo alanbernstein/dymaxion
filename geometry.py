@@ -70,9 +70,53 @@ class DymaxionProjection(object):
         # plot shapes projected onto polyhedron of nonzero thickness,
         # but in such a way that after sanding the polyhedron to a sphere,
         # the shapes match what they should be for the sphere
+        #
+        # specifically: for each point `pt` in path,
+        # 1. project onto insphere (call this `pts`)
+        # 2. find intersection of
+        #    a) line through pts, with direction vector = face_normal
+        #    b) plane of the face
 
-        # TODO: project_predistort
-        pass
+
+        R_ci = 1.258408572364819 # ratio of icosahedron circumradius/inradius
+        # gives insphere radius relative to vertex magnitude
+
+        pxyz = []
+        best_faces = []
+        for pt in xyz:
+            face_axis_angles = np.arccos(np.sum(pt/np.linalg.norm(pt) * self.face_unit_normals, axis=1))
+            best_face_id = np.argmin(face_axis_angles)
+            best_faces.append(best_face_id)
+
+            fc = self.face_centers[best_face_id] # arbitrary point on plane
+            fn = self.face_unit_normals[best_face_id] # normal to plane
+
+            # project pt onto insphere first...
+            pts = np.linalg.norm(self.vertices[0])/R_ci * pt/np.linalg.norm(pt)
+
+            # ...then project that point, through a line perpendicular to the face,
+            # onto the face
+            s = np.dot(fc-pts, fn) / np.dot(fn, fn)
+            projected = pts + fn * s
+
+            # TODO - this is missing something -
+            # paths that cross polyhedron edges are no longer contiguous
+
+            """
+            (p-fc).fn = 0             # (p-p0).n = 0
+            p = pt + fn*d             # p = l0 + l*d
+            ((pt + fn*d)-fc).fn = 0   # ((l0+l*d)-p0).n = 0
+            (pt + fn*d - fc).fn = 0
+            pt.fn + d*fn.fn - fc.fn = 0
+            d*fn.fn = fc.fn - pt.fn
+            d = (fc-pt).fn/(fn.fn)
+            p = pt + fn*d
+            p = pt + fn * (fc-pt).fn/(fn.fn)
+            """
+
+            pxyz.append(projected)
+
+        return np.array(pxyz), best_faces
 
 
     def project_simple(self, xyz):
@@ -83,6 +127,11 @@ class DymaxionProjection(object):
         #   the intersection of a ray and a plane, /not/ the projection of
         #   that ray onto the plane, as you might mistakenly assume
         #   thanks to the overloaded term "projection".
+
+        # specifically: for each point `pt` in path,
+        # find intersection of
+        # a) line through `pt` with direction vector = `pt`
+        # b) the plane of the face
 
         pxyz = []
         best_faces = []
