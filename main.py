@@ -29,7 +29,8 @@ data_spec = {'fname': 'continents.geo.json', 'pmap': {'name': 'CONTINENT', 'cont
 
 SVG, PLOT2D, PLOT3D = True, True, True
 
-svg_filename = 'icosahedron.svg'
+SVG_FILENAME_SIMPLE = 'icosahedron-simple.svg'
+SVG_FILENAME_PREDISTORT = 'icosahedron-predistort.svg'
 
 d2r = np.pi / 180
 r_ball_in = 10  # planned radius of CNC ball
@@ -82,7 +83,8 @@ def main():
         ax.set_aspect('equal')
 
     if SVG:
-        write_svg(cnc_layout, svg_filename)
+        write_svg(cnc_layout_simple, SVG_FILENAME_SIMPLE)
+        write_svg(cnc_layout_predistort, SVG_FILENAME_PREDISTORT)
         # TODO: write dxf https://pypi.org/project/ezdxf/0.6.2/
 
 
