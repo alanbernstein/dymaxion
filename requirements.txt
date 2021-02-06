@@ -1,3 +1,5 @@
+ipdb
 matplotlib
 numpy
+svgpathtools
 svgwrite
