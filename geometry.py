@@ -1,4 +1,4 @@
-from math import pi, cos, radians
+from math import pi, cos, radians, sqrt
 
 import numpy as np
 
@@ -198,10 +198,10 @@ def cube():
 
 
 
-p = (np.sqrt(5) + 1)/2  # golden ratio
+phi = (sqrt(5) + 1)/2  # golden ratio
 
-icosahedron_circumradius_per_side = np.sqrt(p*np.sqrt(5))/2
-icosahedron_inradius_per_side = p**2 / (2 * np.sqrt(3))
+icosahedron_circumradius_per_side = sqrt(phi*sqrt(5))/2
+icosahedron_inradius_per_side = phi**2 / (2 * sqrt(3))
 icosahedron_circumradius_per_inradius = icosahedron_circumradius_per_side / icosahedron_inradius_per_side
 
 def icosahedron(circumradius=None, inradius=None):
@@ -212,18 +212,18 @@ def icosahedron(circumradius=None, inradius=None):
         circumradius = icosahedron_circumradius_per_inradius * inradius
 
     vertices = np.array([
-        [0, p, 1],
-        [0, p, -1],
-        [0, -p, 1],
-        [0, -p, -1],
-        [1, 0, p],
-        [1, 0, -p],
-        [-1, 0, p],
-        [-1, 0, -p],
-        [p, 1, 0],
-        [p, -1, 0],
-        [-p, 1, 0],
-        [-p, -1, 0],
+        [0, phi, 1],
+        [0, phi, -1],
+        [0, -phi, 1],
+        [0, -phi, -1],
+        [1, 0, phi],
+        [1, 0, -phi],
+        [-1, 0, phi],
+        [-1, 0, -phi],
+        [phi, 1, 0],
+        [phi, -1, 0],
+        [-phi, 1, 0],
+        [-phi, -1, 0],
     ])
     vertices = vertices * circumradius / np.linalg.norm(vertices[0,:])
     edges = select_shortest_edges(vertices)
@@ -233,40 +233,115 @@ def icosahedron(circumradius=None, inradius=None):
     return vertices, edges, faces
 
 
-def truncated_icosahedron(circumradius=None):
+def icosahedron_face_transform(fid, verts):
+    # given a face id and the 2d vertex positions,
+    # compute 2d translation and rotations necessary to
+    # move the face, and any shapes it contains, into the
+    # appropriate 2d position to produce a polyhedron net.
+    #
+    # this is a crappy ad-hoc solution, and it's tied to the specific
+    # way that the icosahedron is defined, but it's good enough for now.
+    #
+    # TODO: probably want to automate this for larger polyhedra.
+    R = np.linalg.norm(verts[0,:])
+    L = R/icosahedron_circumradius_per_side  # side length
+
+    p3 = pi/3
+    r3_6 = sqrt(3)/6
+
+    x0, y0 = 11/L, 7/L  # SVG doesn't like negative coordinates
+
+    transmap = {
+        # face_id: [x, y, angle]
+        # for clarity, angle is decomposed into
+        # face_alignment_angle + shape_alignment_angle
+        # with explicit zero values.
+        # south cap faces
+        19: [x0 + 0, y0 + 0, 1*p3 + 2*p3],
+        15: [x0 + 1, y0 + 0, 1*p3 + 0*p3],
+        13: [x0 + 2, y0 + 0, 1*p3 + 4*p3],
+        5:  [x0 + 3, y0 + 0, 1*p3 + 0*p3],
+        7:  [x0 + 4, y0 + 0, 1*p3 + 4*p3],
+        # south equator faces
+        18: [x0 + 0, y0 + 2*r3_6, 0*p3 + 0*p3],
+        9:  [x0 + 1, y0 + 2*r3_6, 0*p3 + 0*p3],
+        14: [x0 + 2, y0 + 2*r3_6, 0*p3 + 4*p3],
+        6:  [x0 + 3, y0 + 2*r3_6, 0*p3 + 2*p3],
+        1:  [x0 + 4, y0 + 2*r3_6, 0*p3 + 0*p3],
+        # north equator faces
+        4:  [x0 + 0-.5, y0 + 3*r3_6, 1*p3 + 4*p3],
+        12: [x0 + 1-.5, y0 + 3*r3_6, 1*p3 + 0*p3],
+        8:  [x0 + 2-.5, y0 + 3*r3_6, 1*p3 + 4*p3],
+        17: [x0 + 3-.5, y0 + 3*r3_6, 1*p3 + 2*p3],
+        0:  [x0 + 4-.5, y0 + 3*r3_6, 1*p3 + 0*p3],
+        # north cap faces
+        2:  [x0 + 0-.5, y0 + 5*r3_6, 0*p3 + 4*p3],
+        10: [x0 + 1-.5, y0 + 5*r3_6, 0*p3 + 2*p3],
+        11: [x0 + 2-.5, y0 + 5*r3_6, 0*p3 + 4*p3],
+        16: [x0 + 3-.5, y0 + 5*r3_6, 0*p3 + 0*p3],
+        3:  [x0 + 4-.5, y0 + 5*r3_6, 0*p3 + 2*p3],
+    }
+
+    verts = verts - np.mean(verts, axis=0)
+    angle = np.arctan2(verts[0, 0], verts[0, 1])
+    x, y, a = transmap[fid]
+    return L * x, L * y, -angle+a
+
+
+truncated_icosahedron_circumradius_per_side = 1/2 * sqrt(1 + 9 * phi**2)  # 2.478
+
+def truncated_icosahedron(circumradius=None, inradius=None):
+    if not circumradius and not inradius:
+        circumradius = 1
+
+    if inradius and not circumradius:
+        circumradius = truncated_icosahedron_circumradius_per_inradius * inradius
+
     v0 = [
-        [0, 1, 3*p],
-        [0, 1, -3*p],
-        [0, -1, 3*p],
-        [0, -1, -3*p],
+        [0, 1, 3*phi],
+        [0, 1, -3*phi],
+        [0, -1, 3*phi],
+        [0, -1, -3*phi],
 
-        [1, 2+p, 2*p],
-        [1, 2+p, -2*p],
-        [1, -2-p, 2*p],
-        [1, -2-p, -2*p],
-        [-1, 2+p, 2*p],
-        [-1, 2+p, -2*p],
-        [-1, -2-p, 2*p],
-        [-1, -2-p, -2*p],
+        [1, 2+phi, 2*phi],
+        [1, 2+phi, -2*phi],
+        [1, -2-phi, 2*phi],
+        [1, -2-phi, -2*phi],
+        [-1, 2+phi, 2*phi],
+        [-1, 2+phi, -2*phi],
+        [-1, -2-phi, 2*phi],
+        [-1, -2-phi, -2*phi],
 
-        [p, 2, 2*p+1],
-        [p, 2, -2*p-1],
-        [p, -2, 2*p+1],
-        [p, -2, -2*p-1],
-        [-p, 2, 2*p+1],
-        [-p, 2, -2*p-1],
-        [-p, -2, 2*p+1],
-        [-p, -2, -2*p-1],
+        [phi, 2, 2*phi+1],
+        [phi, 2, -2*phi-1],
+        [phi, -2, 2*phi+1],
+        [phi, -2, -2*phi-1],
+        [-phi, 2, 2*phi+1],
+        [-phi, 2, -2*phi-1],
+        [-phi, -2, 2*phi+1],
+        [-phi, -2, -2*phi-1],
     ]
     # generate all even permutations of each of ^
     v1 = [[x[2], x[0], x[1]] for x in v0]
     v2 = [[x[1], x[2], x[0]] for x in v0]
     vertices = np.array(v0 + v1 + v2)
+    vertices = vertices * circumradius / np.linalg.norm(vertices[0,:])
 
     edges = select_shortest_edges(vertices)
 
     faces = select_planar_sets(vertices, edges)
     return vertices, edges, faces
+
+
+def truncated_icosahedron_face_transform(fid, verts):
+    R = np.linalg.norm(verts[0,:])
+    L = R/truncated_icosahedron_circumradius_per_side  # side length
+
+    x = 2 * L * (fid % 8)
+    y = 2 * L * (fid // 8)
+
+    # return x, y, angle
+    return x, y, 0
 
 
 def select_planar_sets(v, edges):
@@ -332,8 +407,6 @@ def coplanar(v, e1, e2):
     v21, v22 = v[e2[0]], v[e2[1]]
     z = np.dot(v11 - v21, np.cross(v12-v11, v22-v21))
     return abs(z) < 1e-6
-
-
 
 
 def select_smallest_faces(edges, L):

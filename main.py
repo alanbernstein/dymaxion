@@ -11,10 +11,12 @@ import numpy as np
 from geography import filter_geojson
 from geometry import (
     icosahedron,
+    truncated_icosahedron,
     DymaxionProjection,
     rotation_matrix_from_euler,
     rotation_matrix_from_src_dest_vecs,
-    icosahedron_circumradius_per_side,
+    icosahedron_face_transform,
+    truncated_icosahedron_face_transform,
 )
 from svg import write_svg
 
@@ -114,65 +116,16 @@ def main():
 
 
 
-def icosahedron_face_transform(fid, verts):
-    # given a face id and the 2d vertex positions,
-    # compute 2d translation and rotations necessary to
-    # move the face, and any shapes it contains, into the
-    # appropriate 2d position to produce a polyhedron net.
-    #
-    # this is a crappy ad-hoc solution, and it's tied to the specific
-    # way that the icosahedron is defined, but it's good enough for now.
-    #
-    # TODO: probably want to automate this for larger polyhedra.
-    L = R/icosahedron_circumradius_per_side  # side length
+        layer['paths'] = pnew
 
-    p3 = np.pi/3
-    r3_6 = np.sqrt(3)/6
-
-    x0, y0 = 11/L, 7/L  # SVG doesn't like negative coordinates
-
-    transmap = {
-        # face_id: [x, y, angle]
-        # for clarity, angle is decomposed into
-        # face_alignment_angle + shape_alignment_angle
-        # with explicit zero values.
-        # south cap faces
-        19: [x0 + 0, y0 + 0, 1*p3 + 2*p3],
-        15: [x0 + 1, y0 + 0, 1*p3 + 0*p3],
-        13: [x0 + 2, y0 + 0, 1*p3 + 4*p3],
-        5:  [x0 + 3, y0 + 0, 1*p3 + 0*p3],
-        7:  [x0 + 4, y0 + 0, 1*p3 + 4*p3],
-        # south equator faces
-        18: [x0 + 0, y0 + 2*r3_6, 0*p3 + 0*p3],
-        9:  [x0 + 1, y0 + 2*r3_6, 0*p3 + 0*p3],
-        14: [x0 + 2, y0 + 2*r3_6, 0*p3 + 4*p3],
-        6:  [x0 + 3, y0 + 2*r3_6, 0*p3 + 2*p3],
-        1:  [x0 + 4, y0 + 2*r3_6, 0*p3 + 0*p3],
-        # north equator faces
-        4:  [x0 + 0-.5, y0 + 3*r3_6, 1*p3 + 4*p3],
-        12: [x0 + 1-.5, y0 + 3*r3_6, 1*p3 + 0*p3],
-        8:  [x0 + 2-.5, y0 + 3*r3_6, 1*p3 + 4*p3],
-        17: [x0 + 3-.5, y0 + 3*r3_6, 1*p3 + 2*p3],
-        0:  [x0 + 4-.5, y0 + 3*r3_6, 1*p3 + 0*p3],
-        # north cap faces
-        2:  [x0 + 0-.5, y0 + 5*r3_6, 0*p3 + 4*p3],
-        10: [x0 + 1-.5, y0 + 5*r3_6, 0*p3 + 2*p3],
-        11: [x0 + 2-.5, y0 + 5*r3_6, 0*p3 + 4*p3],
-        16: [x0 + 3-.5, y0 + 5*r3_6, 0*p3 + 0*p3],
-        3:  [x0 + 4-.5, y0 + 5*r3_6, 0*p3 + 2*p3],
-    }
-
-    verts = verts - np.mean(verts, axis=0)
-    angle = np.arctan2(verts[0, 0], verts[0, 1])
-    x, y, a = transmap[fid]
-    return L * x, L * y, -angle+a
+    return layers
 
 
-def generate_cnc_layout(shapes3d, dym):
+def generate_cnc_layout(shapes3d, dym, face_transform):
     # plot the polyhedron net in 2d, with the corresponding projected shapes
 
     # split up shapes into segments, based on which face they're on
-    face_segments_map = {n: [] for n in range(20)}
+    face_segments_map = {n: [] for n in range(len(dym.faces))}
     # this is a dict of lists, with each list element representing a segment
     # of a border-shape, that is contained within a single face of the polyhedron.
     # the list element is a tuple (vertex_list, face_id)
@@ -207,7 +160,7 @@ def generate_cnc_layout(shapes3d, dym):
         fv = dym.vertices[dym.faces[face_idx]]
         fv2 = fv @ Rot.T
 
-        fx, fy, fr = icosahedron_face_transform(face_idx, fv2)
+        fx, fy, fr = face_transform(face_idx, fv2)
         fRot = np.array([[np.cos(fr), -np.sin(fr)], [np.sin(fr), np.cos(fr)]])
         fv2_oriented = fv2[:, 0:2] @ fRot
 
