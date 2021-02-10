@@ -1,7 +1,8 @@
+import json
 from geometry import sphere_polyarea
 verbosity = 3
 
-def filter_geojson(geojson, prop_map, name_whitelist=None, count_thresh=0, area_thresh=100000, DS=10):
+def load_geojson(cfg):
     # returns a list of shapes (list of lists of points).
     #
     # geojson file contains a list of administrative areas (countries, but also antarctica, etc)
@@ -11,6 +12,16 @@ def filter_geojson(geojson, prop_map, name_whitelist=None, count_thresh=0, area_
     # low resolution file : 10565 points /  285 shapes / 176 countrie
     #
     # so some amount of filtering needs to be done, at least for plotting
+
+    fname = cfg['fname']
+    prop_map = cfg['pmap']
+    name_whitelist = cfg['name_whitelist']
+    count_thresh = cfg['count_threshold']
+    area_thresh = cfg['area_threshold_km2']
+    DS = cfg['downsample_rate']
+
+    with open(fname, 'r') as f:
+        geojson = json.load(f)
 
     counts_total = {
         'countries': len(geojson['features']),

@@ -26,86 +26,100 @@ from svg import write_svg
 # TODO: use a proper 3d plotting library
 #       alternatively: https://stackoverflow.com/questions/41699494/how-to-obscure-a-line-behind-a-surface-plot-in-matplotlib
 
-# data_spec = {'fname': 'world-110m.geo.json', pmap: {'name': 'name', 'continent': 'continent'}}
-data_spec = {'fname': 'continents.geo.json', 'pmap': {'name': 'CONTINENT', 'continent': 'CONTINENT'}}
 
-SVG, PLOT2D, PLOT3D = True, True, True
+def get_rotation(cfg):
+    poly = cfg['projection']['polyhedron']
+    name = cfg['projection']['rotation']
 
-svg_filename = 'icosahedron.svg'
+    # TODO: define rotations based on two earth reference points; north pole and ???
+    if name in ['', 'identity', 'default']:
+        return np.eye(3)
+    if poly == 'icosahedron' and name == 'poles-at-vertices':
+        return rotation_matrix_from_euler(y=np.pi*0.175, z=np.pi*0.0)
+    if poly == 'icosahedron' and name == 'australia-face':
+        return rotation_matrix_from_euler(x=np.pi*-0.03)
+    if poly == 'icosahedron' and name == 'poles-at-faces':
+        raise NotImplementedError
+    if poly == 'icosahedron' and name == 'minimal-land-disruption':
+        raise NotImplementedError
 
-d2r = np.pi / 180
-r_ball_in = 10  # planned radius of CNC ball
-R = r_ball_in
+    raise NotImplementedError
 
-# count_thresh, area_thresh, DS = -1, 10000, 10
-count_thresh, area_thresh, DS = 0, 100000, 1
-
-name_whitelist = []
-# name_whitelist = ['Canada', 'United States', 'Australia', 'China', 'Egypt', 'Brazil', 'Germany', 'Russia', 'Antarctica']
-
-
-# @pm
+@pm
 def main():
-    # load border data
-    with open(data_spec['fname'], 'r') as f:
-        geoj = json.load(f)
-    shapes2d = filter_geojson(geoj, data_spec['pmap'], name_whitelist, count_thresh, area_thresh, DS)
-    shapes3d = latlon2xyz(shapes2d)
+    config_file = "configs/icosahedron-simple.json"
+    with open(config_file, "r") as f:
+        cfg = json.load(f)
 
+    R = cfg['projection']['circumradius_in']
+
+    # load border data
+    shapes2d = load_geojson(cfg['map_data_spec'][0])
+    shapes3d = latlon2xyz(R, shapes2d)
 
     # define polyhedron and projection
-    pv, pe, pf = icosahedron(circumradius=R)
-    # Rot = np.eye(3)  # default
-    # TODO: define these rotations based on the location of the north pole, and some other lat/lon reference point
-    # Rot = rotation_matrix_from_euler(y=np.pi*0.175, z=np.pi*0.0)  # align two icosahedron vertices with earth poles
-    Rot = rotation_matrix_from_euler(x=np.pi*-0.03)  # align australia to be contained in a face
-    # Rot = rotation_matrix_from_euler(???)  # TODO: aligned poles to centers of faces
-    # Rot = rotation_matrix_from_euler(???)  # TODO: minimal land disruption
+    if cfg['projection']['polyhedron'] in ['icosahedron', '20', 'icosa']:
+        polyhedron = 'icosahedron'
+        pv, pe, pf = icosahedron(circumradius=R)
+        ft = icosahedron_face_transform
+    if cfg['projection']['polyhedron'] in ['truncated-icosahedron', '32', 'soccerball']:
+        polyhedron = 'truncated-icosahedron'
+        pv, pe, pf = truncated_icosahedron(circumradius=R)
+        ft = truncated_icosahedron_face_transform
+
+    Rot = get_rotation(cfg)
     pv = pv @ Rot
     dym = DymaxionProjection(pv, pe, pf)
+    dym.set_projection(cfg['projection']['method'])
 
+    cnc_layout = generate_cnc_layout(shapes3d, dym, ft)
 
-    dym.set_projection('simple')
-    cnc_layout_simple = generate_cnc_layout(shapes3d, dym)
+    # json.dump(cnc_layout_simple[1]['paths'][26].tolist(), open('border-sample-australia.json', 'w'))
 
-    dym.set_projection('predistort')
-    cnc_layout_predistort = generate_cnc_layout(shapes3d, dym)
-    cnc_layout_predistort[1]['plot_kwargs']['color'] = 'g'
+    # dym.set_projection('predistort-90')
+    # cnc_layout_predistort = generate_cnc_layout(shapes3d, dym, ft)
+    # cnc_layout_predistort[1]['plot_kwargs']['color'] = 'g'
+    # TODO: apply maximum_curvature limit to shapes layer
 
-    if PLOT2D:
+    if cfg.get('plot2d'):
         # 2d plots
         fig = plt.figure()
         ax = fig.add_subplot(111)
         # ax = fig.add_subplot(111, projection='3d')
         # plot_map_latlon(ax, shapes2d)
 
-        plot_layers(ax, cnc_layout_simple)
-        plot_layers(ax, cnc_layout_predistort)
+        plot_layers(ax, cnc_layout)
+        #cnc_layout_simple_smoothed = prep_cnc_layer(cnc_layout_simple, 'continent-borders')
+        #cnc_layout_simple_smoothed[1]['plot_kwargs']['color'] = 'g'
+        # plot_layers(ax, cnc_layout_simple_smoothed)
+        # plot_layers(ax, cnc_layout_predistort)
         ax.set_aspect('equal')
 
-    if SVG:
-        write_svg(cnc_layout, svg_filename)
+    if cfg.get('svg'):
+        write_svg(cnc_layout, cfg['svg_filename'])
+
+    if cfg.get('dxf'):
+        write_dxf(cnc_layout, cfg['dxf_filename'])
         # TODO: write dxf https://pypi.org/project/ezdxf/0.6.2/
 
-
-    if PLOT3D:
+    if cfg.get('plot3d'):
         # for 3d plots
         fig = plt.figure()
         ax = fig.add_subplot(111, projection='3d')
 
         # globe stuff
-        plot_globe_sphere(ax, shapes3d)
+        # plot_globe_sphere(ax, shapes3d)
         plot_globe_polyhedron(ax, shapes3d, dym)
-        #dym.set_projection('predistort')
+        #dym.set_projection('predistort-90')
         #plot_globe_polyhedron(ax, shapes3d, dym)
         plot_polyhedron(ax, pv, pe)
         plot_polyhedron_labels(ax, pv, pf)
 
         # auxiliary stuff
-        plot_polar_axis(ax)
+        plot_polar_axis(ax, R)
         ax.view_init(elev=-20, azim=130)
-        # plot_latlon_grid(ax)
-        plot_hidden_cube(ax)
+        # plot_latlon_grid(ax, R, d=30)
+        plot_hidden_cube(ax, R)
         plt.xlabel('x')
         plt.xlabel('y')
 
@@ -280,12 +294,12 @@ def plot_polyhedron_labels(ax, pv, pf):
         ax.text(fc[0], fc[1], fc[2], n, color='r')
 
 
-def plot_polar_axis(ax):
+def plot_polar_axis(ax, R):
     # plot earth axis for visual reference
     ax.plot([0, 0], [0, 0], [-R, R], '.b-')
 
 
-def latlon2xyz(shapes2d):
+def latlon2xyz(R, shapes2d):
     # apply spherical->cartesian transform for all shapes in list
     shapes3d = []
     for shape in shapes2d:
@@ -294,6 +308,8 @@ def latlon2xyz(shapes2d):
         shapes3d.append(np.vstack(xyz).T)
 
     return shapes3d
+
+d2r = np.pi / 180
 
 
 def sphere2cart(R, lon, lat):
@@ -304,7 +320,7 @@ def sphere2cart(R, lon, lat):
     return x, y, z
 
 
-def plot_hidden_cube(ax):
+def plot_hidden_cube(ax, R):
     # plot bounding cube to force better aspect ratio
     ax.plot(
         [-R, -R, -R, -R, R, R, R, R],
@@ -315,7 +331,7 @@ def plot_hidden_cube(ax):
     )
 
 
-def plot_latlon_grid(ax, d=30):
+def plot_latlon_grid(ax, R, d=30):
     # plot lat/lon lines for visual reference
     t = np.linspace(0, 2*np.pi, 64)
     for ll in np.arange(-90, 91, d):
