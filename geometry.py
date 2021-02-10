@@ -63,10 +63,12 @@ class DymaxionProjection(object):
     def project(self, xyz):
         if self.projection == 'simple':
             return self.project_simple(xyz)
-        if self.projection == 'predistort':
-            return self.project_predistort(xyz)
+        if self.projection == 'predistort-90':
+            return self.project_predistort_90(xyz)
+        if self.projection == 'predistort-45':
+            return self.project_predistort_45(xyz)
 
-    def project_predistort(self, xyz):
+    def project_predistort_90(self, xyz):
         # plot shapes projected onto polyhedron of nonzero thickness,
         # but in such a way that after sanding the polyhedron to a sphere,
         # the shapes match what they should be for the sphere
@@ -118,6 +120,8 @@ class DymaxionProjection(object):
 
         return np.array(pxyz), best_faces
 
+    def project_predistort_45(self, xyz):
+        raise NotImplementedError
 
     def project_simple(self, xyz):
         # for each point in the shape:
@@ -391,7 +395,7 @@ def select_planar_sets(v, edges):
             del(d_edges[ei[n]])  # remove it from the list
             if face[0] == face[-1]:
                 # face cycle is complete, move on
-                faces.append(face)
+                faces.append(face[0:-1])
                 # print('  done: %s' % face)
                 break
 

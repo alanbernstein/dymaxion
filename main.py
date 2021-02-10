@@ -1,5 +1,6 @@
 import json
 from pprint import pprint as pp
+import sys
 from ipdb import set_trace as db
 
 import matplotlib.pyplot as plt
@@ -8,7 +9,8 @@ from matplotlib import colors as mcolors
 import numpy as np
 
 
-from geography import filter_geojson
+from geography import load_geojson
+
 from geometry import (
     icosahedron,
     truncated_icosahedron,
@@ -38,16 +40,14 @@ def get_rotation(cfg):
         return rotation_matrix_from_euler(y=np.pi*0.175, z=np.pi*0.0)
     if poly == 'icosahedron' and name == 'australia-face':
         return rotation_matrix_from_euler(x=np.pi*-0.03)
-    if poly == 'icosahedron' and name == 'poles-at-faces':
-        raise NotImplementedError
-    if poly == 'icosahedron' and name == 'minimal-land-disruption':
-        raise NotImplementedError
+    # if poly == 'icosahedron' and name == 'poles-at-faces':
+    # if poly == 'icosahedron' and name == 'minimal-land-disruption':
 
-    raise NotImplementedError
+    raise NotImplementedError(poly + "/" + name)
 
 @pm
 def main():
-    config_file = "configs/icosahedron-simple.json"
+    config_file = sys.argv[1] or "configs/icosahedron-simple.json"
     with open(config_file, "r") as f:
         cfg = json.load(f)
 
@@ -171,7 +171,8 @@ def generate_cnc_layout(shapes3d, dym, face_transform):
         fn = dym.face_unit_normals[face_idx]
         Rot = rotation_matrix_from_src_dest_vecs(fn, [0, 0, 1])
 
-        fv = dym.vertices[dym.faces[face_idx]]
+        fv_open = dym.vertices[dym.faces[face_idx]]
+        fv = np.vstack((fv_open, fv_open[0,:]))
         fv2 = fv @ Rot.T
 
         fx, fy, fr = face_transform(face_idx, fv2)
@@ -179,8 +180,8 @@ def generate_cnc_layout(shapes3d, dym, face_transform):
         fv2_oriented = fv2[:, 0:2] @ fRot
 
         edge_paths.append(np.vstack((
-            fx + fv2_oriented[[0, 1, 2, 0], 0],
-            fy + fv2_oriented[[0, 1, 2, 0], 1],
+            fx + fv2_oriented[:, 0],
+            fy + fv2_oriented[:, 1],
         )).T)
 
         label_locs.append([fx, fy])
