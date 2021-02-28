@@ -1,0 +1,22 @@
+{
+    "map_data_spec": [
+        {
+            "fname": "world-110m.geo.json",
+            "pmap": {"name": "name", "continent": "continent"},
+            "count_threshold": -1,
+            "area_threshold": 10000,
+            "downsample_rate": 10,
+            "name_whitelist": ["Canada", "United States", "Australia", "China", "Egypt", "Brazil", "Germany", "Russia", "Antarctica"]
+        }
+    ],
+    "projection": {
+        "polyhedron": "icosahedron",
+        "method": "simple",
+        "rotation": "poles-at-vertices"
+    },
+    "smoothing": "rdp",
+    "svg_filename": "images/icosahedron-simple-hires.svg",
+    "svg": true,
+    "plot2d": true,
+    "plot3d": true
+}

@@ -1,0 +1,23 @@
+{
+    "map_data_spec": [
+        {
+            "fname": "continents.geo.json",
+            "pmap": {"name": "CONTINENT", "continent": "CONTINENT"},
+            "count_threshold": 0,
+            "area_threshold_km2": 100000,
+            "downsample_rate": 1,
+            "name_whitelist": []
+        }
+    ],
+    "projection": {
+        "polyhedron": "truncated-icosahedron",
+        "method": "simple",
+        "rotation": "default",
+        "circumradius_in": 20
+    },
+    "smoothing": "rdp",
+    "svg_filename": "images/truncated-icosahedron-simple.svg",
+    "svg": false,
+    "plot2d": true,
+    "plot3d": true
+}
