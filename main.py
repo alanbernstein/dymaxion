@@ -40,6 +40,8 @@ def get_rotation(cfg):
         return rotation_matrix_from_euler(y=np.pi*0.175, z=np.pi*0.0)
     if poly == 'icosahedron' and name == 'australia-face':
         return rotation_matrix_from_euler(x=np.pi*-0.03)
+    if poly == 'truncated-icosahedron' and name == 'poles-at-pentagons':
+        return rotation_matrix_from_euler(x=np.pi*0.17620819117478337)
     # if poly == 'icosahedron' and name == 'poles-at-faces':
     # if poly == 'icosahedron' and name == 'minimal-land-disruption':
 
@@ -71,6 +73,13 @@ def main():
         pv, pe, pf = truncated_icosahedron(circumradius=R)
         ft = truncated_icosahedron_face_transform
 
+        # compute rotation angle for poles-at-pentagons
+        #verts = pv[pf[6]]
+        #center_of_edge = np.mean(pv[[0, 2],:], axis=0)
+        #center_of_pent = np.mean(verts,axis=0)
+        #theta = np.arccos(np.dot(center_of_edge, center_of_pent)/(np.linalg.norm(center_of_edge) * np.linalg.norm(center_of_pent)))
+
+
     Rot = get_rotation(cfg)
     pv = pv @ Rot
     dym = DymaxionProjection(pv, pe, pf)
@@ -83,7 +92,6 @@ def main():
     # dym.set_projection('predistort-90')
     # cnc_layout_predistort = generate_cnc_layout(shapes3d, dym, ft)
     # cnc_layout_predistort[1]['plot_kwargs']['color'] = 'g'
-    # TODO: apply maximum_curvature limit to shapes layer
 
     if cfg.get('plot2d'):
         # 2d plots
@@ -93,9 +101,6 @@ def main():
         # plot_map_latlon(ax, shapes2d)
 
         plot_layers(ax, cnc_layout)
-        #cnc_layout_simple_smoothed = prep_cnc_layer(cnc_layout_simple, 'continent-borders')
-        #cnc_layout_simple_smoothed[1]['plot_kwargs']['color'] = 'g'
-        # plot_layers(ax, cnc_layout_simple_smoothed)
         # plot_layers(ax, cnc_layout_predistort)
         ax.set_aspect('equal')
 
@@ -131,12 +136,6 @@ def main():
         fig.subplots_adjust(left=-0.5, right=1.5)
 
     plt.show()
-
-
-
-        layer['paths'] = pnew
-
-    return layers
 
 
 def generate_cnc_layout(shapes3d, dym, face_transform):
@@ -182,8 +181,10 @@ def generate_cnc_layout(shapes3d, dym, face_transform):
 
         fx, fy, fr = face_transform(face_idx, fv2)
         fRot = np.array([[np.cos(fr), -np.sin(fr)], [np.sin(fr), np.cos(fr)]])
+
         fv2_oriented = fv2[:, 0:2] @ fRot
 
+        # db()
         edge_paths.append(np.vstack((
             fx + fv2_oriented[:, 0],
             fy + fv2_oriented[:, 1],
@@ -202,9 +203,6 @@ def generate_cnc_layout(shapes3d, dym, face_transform):
                 fx + segment2d_oriented[:,0],
                 fy + segment2d_oriented[:,1],
             )).T)
-
-            # TODO: apply maximum_curvature limit
-
 
     layers = [
         {

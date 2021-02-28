@@ -309,7 +309,83 @@ def icosahedron(circumradius=None, inradius=None):
     return vertices, edges, faces
 
 
+def truncated_icosahedron_face_transform(fid, verts):
+    # assumes a regular polygon, centered at the origin
+    R = np.linalg.norm(verts[0,:])
+    L = R/truncated_icosahedron_circumradius_per_side  # side length
+
+    p5 = pi/5
+    p3 = pi/3
+    inr5 = 1/10 * sqrt(25 + 10*sqrt(5))# inradius of pentagon
+    r3_2 = sqrt(3)/2
+
+    x0, y0 = 11, 7  # SVG doesn't like negative coordinates
+
+    transmap = {
+        # face_id: [x, y, angle]
+        # note that faces with no shape content do not necessarily
+        # have the correct shape alignment angle.
+
+        # south pole pentagon
+        5:  [0, -r3_2-inr5, p5 + 4*p5],
+
+        # antarctic hexagons
+        10: [ 0, 0, 4*p3],
+        17: [ 3, 0, 4*p3],
+        3:  [ 6, 0, 0*p3],
+        4:  [ 9, 0, 4*p3],
+        11: [12, 0, 3*p3],
+
+        # capricorn pentagons
+        30: [ 1.5, 2*r3_2-inr5, p5 + 6*p5],
+        27: [ 4.5, 2*r3_2-inr5, p5 + 0*p5],
+        7:  [ 7.5, 2*r3_2-inr5, p5 + 4*p5],
+        26: [10.5, 2*r3_2-inr5, p5 + 0*p5],
+        28: [13.5, 2*r3_2-inr5, p5 + 2*p5],
+
+        # south equator hexagons
+        9:  [ 0, 2*r3_2, 0*p3],
+        24: [ 3, 2*r3_2, 1*p3],
+        19: [ 6, 2*r3_2, 0*p3],
+        14: [ 9, 2*r3_2, 5*p3],
+        20: [12, 2*r3_2, 0*p3],
+
+        # north equator hexagons
+        16: [ 1.5, 3*r3_2, 5*p3],
+        23: [ 4.5, 3*r3_2, 0*p3],
+        15: [ 7.5, 3*r3_2, 3*p3],
+        22: [10.5, 3*r3_2, 2*p3],
+        8:  [13.5, 3*r3_2, 2*p3],
+
+        # cancer pentagons
+        1:  [0 , 3*r3_2 + inr5, 0*p5],
+        25: [3 , 3*r3_2 + inr5, 0*p5],
+        31: [6 , 3*r3_2 + inr5, 2*p5],
+        29: [9 , 3*r3_2 + inr5, 8*p5],
+        21: [12, 3*r3_2 + inr5, 6*p5],
+
+        # arctic hexagons
+        2:  [ 1.5, 5*r3_2, 5*p3],
+        18: [ 4.5, 5*r3_2, 1*p3],
+        12: [ 7.5, 5*r3_2, 1*p3],
+        13: [10.5, 5*r3_2, 0*p3],
+        0:  [13.5, 5*r3_2, 2*p3],
+
+        # north pole pentagon
+        6:  [1.5, 6*r3_2 + inr5, 6*p5],
+    }
+    verts = verts - np.mean(verts, axis=0)
+    angle = np.arctan2(verts[0, 0], verts[0, 1])
+    if len(verts)-1 == 6:
+        angle += np.pi/6
+
+    x, y, a = transmap[fid]
+    return x0 + L * x, y0 + L * y, -angle+a
+
+
 def icosahedron_face_transform(fid, verts):
+    # assumes a regular polygon, centered at the origin
+    #
     # given a face id and the 2d vertex positions,
     # compute 2d translation and rotations necessary to
     # move the face, and any shapes it contains, into the
@@ -325,43 +401,45 @@ def icosahedron_face_transform(fid, verts):
     p3 = pi/3
     r3_6 = sqrt(3)/6
 
-    x0, y0 = 11/L, 7/L  # SVG doesn't like negative coordinates
+    x0, y0 = 11, 7  # SVG doesn't like negative coordinates
 
     transmap = {
         # face_id: [x, y, angle]
         # for clarity, angle is decomposed into
         # face_alignment_angle + shape_alignment_angle
         # with explicit zero values.
+        # note that faces with no shape content do not necessarily
+        # have the correct shape_alignment_angle.
         # south cap faces
-        19: [x0 + 0, y0 + 0, 1*p3 + 2*p3],
-        15: [x0 + 1, y0 + 0, 1*p3 + 0*p3],
-        13: [x0 + 2, y0 + 0, 1*p3 + 4*p3],
-        5:  [x0 + 3, y0 + 0, 1*p3 + 0*p3],
-        7:  [x0 + 4, y0 + 0, 1*p3 + 4*p3],
+        19: [0, 0, 1*p3 + 2*p3],
+        15: [1, 0, 1*p3 + 0*p3],
+        13: [2, 0, 1*p3 + 4*p3],
+        5:  [3, 0, 1*p3 + 0*p3],
+        7:  [4, 0, 1*p3 + 4*p3],
         # south equator faces
-        18: [x0 + 0, y0 + 2*r3_6, 0*p3 + 0*p3],
-        9:  [x0 + 1, y0 + 2*r3_6, 0*p3 + 0*p3],
-        14: [x0 + 2, y0 + 2*r3_6, 0*p3 + 4*p3],
-        6:  [x0 + 3, y0 + 2*r3_6, 0*p3 + 2*p3],
-        1:  [x0 + 4, y0 + 2*r3_6, 0*p3 + 0*p3],
+        18: [0, 2*r3_6, 0*p3 + 0*p3],
+        9:  [1, 2*r3_6, 0*p3 + 0*p3],
+        14: [2, 2*r3_6, 0*p3 + 4*p3],
+        6:  [3, 2*r3_6, 0*p3 + 2*p3],
+        1:  [4, 2*r3_6, 0*p3 + 0*p3],
         # north equator faces
-        4:  [x0 + 0-.5, y0 + 3*r3_6, 1*p3 + 4*p3],
-        12: [x0 + 1-.5, y0 + 3*r3_6, 1*p3 + 0*p3],
-        8:  [x0 + 2-.5, y0 + 3*r3_6, 1*p3 + 4*p3],
-        17: [x0 + 3-.5, y0 + 3*r3_6, 1*p3 + 2*p3],
-        0:  [x0 + 4-.5, y0 + 3*r3_6, 1*p3 + 0*p3],
+        4:  [0-.5, 3*r3_6, 1*p3 + 4*p3],
+        12: [1-.5, 3*r3_6, 1*p3 + 0*p3],
+        8:  [2-.5, 3*r3_6, 1*p3 + 4*p3],
+        17: [3-.5, 3*r3_6, 1*p3 + 2*p3],
+        0:  [4-.5, 3*r3_6, 1*p3 + 0*p3],
         # north cap faces
-        2:  [x0 + 0-.5, y0 + 5*r3_6, 0*p3 + 4*p3],
-        10: [x0 + 1-.5, y0 + 5*r3_6, 0*p3 + 2*p3],
-        11: [x0 + 2-.5, y0 + 5*r3_6, 0*p3 + 4*p3],
-        16: [x0 + 3-.5, y0 + 5*r3_6, 0*p3 + 0*p3],
-        3:  [x0 + 4-.5, y0 + 5*r3_6, 0*p3 + 2*p3],
+        2:  [0-.5, 5*r3_6, 0*p3 + 4*p3],
+        10: [1-.5, 5*r3_6, 0*p3 + 2*p3],
+        11: [2-.5, 5*r3_6, 0*p3 + 4*p3],
+        16: [3-.5, 5*r3_6, 0*p3 + 0*p3],
+        3:  [4-.5, 5*r3_6, 0*p3 + 2*p3],
     }
 
     verts = verts - np.mean(verts, axis=0)
     angle = np.arctan2(verts[0, 0], verts[0, 1])
     x, y, a = transmap[fid]
-    return L * x, L * y, -angle+a
+    return x0 + L * x, y0 + L * y, -angle+a
 
 
 truncated_icosahedron_circumradius_per_side = 1/2 * sqrt(1 + 9 * phi**2)  # 2.478
@@ -407,17 +485,6 @@ def truncated_icosahedron(circumradius=None, inradius=None):
 
     faces = select_planar_sets(vertices, edges)
     return vertices, edges, faces
-
-
-def truncated_icosahedron_face_transform(fid, verts):
-    R = np.linalg.norm(verts[0,:])
-    L = R/truncated_icosahedron_circumradius_per_side  # side length
-
-    x = 2 * L * (fid % 8)
-    y = 2 * L * (fid // 8)
-
-    # return x, y, angle
-    return x, y, 0
 
 
 def select_planar_sets(v, edges):
