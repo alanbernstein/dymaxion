@@ -47,7 +47,11 @@ def get_rotation(cfg):
 
 @pm
 def main():
-    config_file = sys.argv[1] or "configs/icosahedron-simple.json"
+    if len(sys.argv) > 1:
+        config_file = sys.argv[1]
+    else:
+        config_file = "configs/truncated-icosahedron-simple.json"
+
     with open(config_file, "r") as f:
         cfg = json.load(f)
 
@@ -165,6 +169,7 @@ def generate_cnc_layout(shapes3d, dym, face_transform):
     # then use the face_transform function to adjust the layout
     edge_paths = []
     border_paths = []
+    border_path_colors = []
     label_locs = []
     label_texts = []
     for face_idx, segment_list in face_segments_map.items():
@@ -188,7 +193,9 @@ def generate_cnc_layout(shapes3d, dym, face_transform):
         label_texts.append('%s' % face_idx)
 
         for segment3d, shape_idx in segment_list:
-            # color = colorizer(shape_idx)
+            color = colorizer(shape_idx)
+            # color = colorizer(face_idx)
+            border_path_colors.append(color)
             segment2d = segment3d @ Rot.T
             segment2d_oriented = segment2d[:, 0:2] @ fRot
             border_paths.append(np.vstack((
@@ -213,6 +220,16 @@ def generate_cnc_layout(shapes3d, dym, face_transform):
             'type': 'polyline',
         },
         {
+            'desc': 'face-labels',
+            'pts': label_locs,
+            'labels': label_texts,
+            'type': 'text',
+            'plot_kwargs': {'color': 'b'},
+        }
+    ]
+    color_mode = 'shape'
+    if color_mode == 'single':
+        layers.append({
             'desc': 'continent-borders',
             'paths': border_paths,
             'action': 'cut',
@@ -221,17 +238,24 @@ def generate_cnc_layout(shapes3d, dym, face_transform):
                 'fill-opacity': 0,
                 'stroke_width': 0.1,
             },
-            'plot_kwargs': {'color': 'r', 'linestyle': 'None', 'marker': '.', 'markersize': 2},
+            'plot_kwargs': {'color': 'r', 'linestyle': '-', 'marker': 'None', 'markersize': 2},
             'type': 'polyline',
-        },
-        {
-            'desc': 'face-labels',
-            'pts': label_locs,
-            'labels': label_texts,
-            'type': 'text',
-            'plot_kwargs': {'color': 'b'},
-        }
-    ]
+        })
+
+    elif color_mode == 'shape':
+        for color, path in zip(border_path_colors, border_paths):
+            layers.append({
+                'desc': 'continent-borders',
+                'paths': [path],
+                'action': 'cut',
+                'svg_kwargs': {
+                    'stroke': 'red',
+                    'fill-opacity': 0,
+                    'stroke_width': 0.1,
+                },
+                'plot_kwargs': {'color': color, 'linestyle': '-', 'marker': 'None', 'markersize': 2},
+                'type': 'polyline',
+            })
 
     return layers
 
@@ -276,7 +300,7 @@ def plot_globe_polyhedron(ax, shapes3d, dym):
     for n, s in enumerate(shapes3d):
         color = colorizer(n)
         pxyz, best_faces = dym.project(s)
-        ax.plot(S*pxyz[:,0], S*pxyz[:,1], S*pxyz[:,2], '.', markersize=1, color=color, linewidth=1)
+        ax.plot(S*pxyz[:,0], S*pxyz[:,1], S*pxyz[:,2], '-', markersize=1, color=color, linewidth=1)
 
 
 R_ci = 1.258408572364819 # ratio of icosahedron circumradius/inradius
