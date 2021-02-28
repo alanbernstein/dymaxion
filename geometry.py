@@ -62,7 +62,10 @@ class DymaxionProjection(object):
 
     def project(self, xyz):
         if self.projection == 'simple':
-            return self.project_simple(xyz)
+            if len(self.faces) in [4, 6, 8, 12, 20]:
+                return self.project_simple_platonic(xyz)
+            else:
+                return self.project_simple_archimedean(xyz)
         if self.projection == 'predistort-90':
             return self.project_predistort_90(xyz)
         if self.projection == 'predistort-45':
@@ -71,7 +74,10 @@ class DymaxionProjection(object):
     def project_predistort_90(self, xyz):
         # plot shapes projected onto polyhedron of nonzero thickness,
         # but in such a way that after sanding the polyhedron to a sphere,
-        # the shapes match what they should be for the sphere
+        # the shapes match what they should be for the sphere.
+        # the "90" refers to using an end mill (90 degrees from the plane)
+        # to cut out the shapes, which means the extrusion of the shapes
+        # through the thick face is perpendicular to the face.
         #
         # specifically: for each point `pt` in path,
         # 1. project onto insphere (call this `pts`)
@@ -121,9 +127,75 @@ class DymaxionProjection(object):
         return np.array(pxyz), best_faces
 
     def project_predistort_45(self, xyz):
+        # similar concept to predistort_90, but here the "45" refers
+        # to using a v-groove bit with a 45 angle off the plane,
+        # so the exxtrusion of the shapes through the thick face is
+        # at a 45-degree angle. should also be able to generalize this
+        # to arbitrary other angles (but really just 30, 60)
         raise NotImplementedError
 
-    def project_simple(self, xyz):
+    def project_simple_archimedean(self, xyz):
+        # for each point in the shape:
+        # - select corresponding face
+        # - use equation of plane to project point onto polyhedron.
+        #   note this is a "dymaxion projection", which requires finding
+        #   the intersection of a ray and a plane, /not/ the projection of
+        #   that ray onto the plane, as you might mistakenly assume
+        #   thanks to the overloaded term "projection".
+
+        # specifically: for each point `pt` in path,
+        # find intersection of
+        # a) line through `pt` with direction vector = `pt`
+        # b) the plane of the face
+
+        pxyz = []
+        best_faces = []
+        k = 2
+        for pt in xyz:
+            # figure out which face this point belongs to.
+            #
+            # instead of just choosing the smallest face_axis_angle, look at the
+            # two smallest, find the corresponding point-on-face for both, and
+            # choose the one that is closer to the centroid of the polyhedron.
+            #
+            # this is a quick and dirty solution to the problem that the method
+            # of just choosing the smallest angle only works for platonic solids.
+            # there may be a way that is more "correct", but this seems like it will
+            # be about as fast as we can hope for?
+            #
+            # another idea: find a multiplicative factor to apply to the computed
+            # angles, based on the size of the face. not sure if this makes sense.
+            #
+            # see project_simple_platonic for geometry explanation
+
+            face_axis_angles = np.arccos(np.sum(pt/np.linalg.norm(pt) * self.face_unit_normals, axis=1))
+
+            # argpartition sorts the input array, but only enough that the
+            # first k values are in ascending order, which is all we need
+            idxs = np.argpartition(face_axis_angles, k)
+
+            min_rad = 10 * np.linalg.norm(self.vertices[0])
+            min_projected = []
+
+            for i in range(k):
+                fc = self.face_centers[idxs[i]] # arbitrary point on plane
+                fn = self.face_unit_normals[idxs[i]] # normal to plane
+                s = np.dot(fc, fn)/np.dot(pt, fn)
+                projected = pt * s
+                rad = np.linalg.norm(projected)
+                if rad < min_rad:
+                    min_rad = rad
+                    min_projected = projected
+                    best_face_id = idxs[i]
+
+            best_faces.append(best_face_id)
+            pxyz.append(min_projected)
+
+
+        return np.array(pxyz), best_faces
+
+
+    def project_simple_platonic(self, xyz):
         # for each point in the shape:
         # - find which face-line has smallest angle, select that plane
         # - use equation of plane to project point onto polyhedron.
