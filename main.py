@@ -94,6 +94,7 @@ def main():
 
     # json.dump(cnc_layout_simple[1]['paths'][26].tolist(), open('border-sample-australia.json', 'w'))
 
+    # for direct comparison:
     # dym.set_projection('predistort-90')
     # cnc_layout_predistort = generate_cnc_layout(shapes3d, dym, ft)
     # cnc_layout_predistort[1]['plot_kwargs']['color'] = 'g'
@@ -110,7 +111,7 @@ def main():
         ax.set_aspect('equal')
 
     if cfg.get('svg'):
-        write_svg(cnc_layout, cfg['svg_filename'])
+        write_svg(cnc_layout, cfg['svg_filename'], {'width': '52in', 'height': '30in'})
 
     if cfg.get('dxf'):
         write_dxf(cnc_layout, cfg['dxf_filename'])
@@ -246,21 +247,27 @@ def generate_cnc_layout(shapes3d, dym, face_transform):
         })
 
     elif color_mode == 'shape':
+        n = 0
         for color, path in zip(border_path_colors, border_paths):
             layers.append({
-                'desc': 'continent-borders',
+                'desc': 'continent-borders-%03d' % n,
                 'paths': [path],
                 'action': 'cut',
                 'svg_kwargs': {
-                    'stroke': 'red',
+                    'stroke': floatcolor2hex(color),
                     'fill-opacity': 0,
                     'stroke_width': 0.1,
                 },
                 'plot_kwargs': {'color': color, 'linestyle': '-', 'marker': 'None', 'markersize': 2},
                 'type': 'polyline',
             })
+            n += 1
 
     return layers
+
+
+def floatcolor2hex(floatcolor):
+    return '#%02x%02x%02x' % tuple(int(255*x) for x in floatcolor)
 
 
 def plot_layers(ax, layers):

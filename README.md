@@ -13,10 +13,10 @@ Unfolded into 2d for printing or CNC:
 
 
 # code
-- main.py: entry point, includes all plot functions,
+- main.py: entry point, and all plot functions, including generate_cnc_layout, which is slightly nontrivial.
 - dymaxion.py: implementation of the dymaxion projection.
-- polyhedra.py: definitions of several polyhedra: vertices (generated from symmetry when possible), edges (automatic), faces (automatic), 2D nets (ad hoc)
-- geometry.py: minor general-purpose 3d geometry functions
+- polyhedra.py: definitions of several polyhedra: vertices (generated from symmetry when possible), edges (automatic), faces (automatic), 2D nets (ad hoc).
+- geometry.py: minor general-purpose 3d geometry functions.
 - geography.py: functions for dealing with geojson data.
 - configs/*.json: config files to record combinations of settings. pass name as only argument to main.py.
 

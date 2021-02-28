@@ -187,7 +187,7 @@ def truncated_icosahedron_face_transform(fid, verts):
     inr5 = 1/10 * sqrt(25 + 10*sqrt(5))# inradius of pentagon
     r3_2 = sqrt(3)/2
 
-    x0, y0 = 11, 7  # SVG doesn't like negative coordinates
+    x0, y0 = 5, 8  # SVG doesn't like negative coordinates
 
     transmap = {
         # face_id: [x, y, angle]

@@ -13,7 +13,7 @@
         "polyhedron": "truncated-icosahedron",
         "method": "simple",
         "rotation": "poles-at-pentagons",
-        "circumradius_in": 20
+        "circumradius_in": 8
     },
     "svg_filename": "svg/truncated-icosahedron-simple.svg",
     "svg": true,
