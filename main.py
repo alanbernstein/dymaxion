@@ -9,17 +9,22 @@ from matplotlib import colors as mcolors
 import numpy as np
 
 
-from geography import load_geojson
+from geography import load_geojson, latlon2xyz
 
 from geometry import (
-    icosahedron,
-    truncated_icosahedron,
-    DymaxionProjection,
     rotation_matrix_from_euler,
     rotation_matrix_from_src_dest_vecs,
+)
+
+from polyhedra import (
+    icosahedron,
+    truncated_icosahedron,
     icosahedron_face_transform,
     truncated_icosahedron_face_transform,
 )
+
+from dymaxion import DymaxionProjection
+
 from svg import write_svg
 
 
@@ -222,7 +227,7 @@ def generate_cnc_layout(shapes3d, dym, face_transform):
             'pts': label_locs,
             'labels': label_texts,
             'type': 'text',
-            'plot_kwargs': {'color': 'b'},
+            'plot_kwargs': {'color': 'r'},
         }
     ]
     color_mode = 'shape'
@@ -320,27 +325,6 @@ def plot_polyhedron_labels(ax, pv, pf):
 def plot_polar_axis(ax, R):
     # plot earth axis for visual reference
     ax.plot([0, 0], [0, 0], [-R, R], '.b-')
-
-
-def latlon2xyz(R, shapes2d):
-    # apply spherical->cartesian transform for all shapes in list
-    shapes3d = []
-    for shape in shapes2d:
-        lon, lat = zip(*shape)
-        xyz = sphere2cart(R, np.array(lon), np.array(lat))
-        shapes3d.append(np.vstack(xyz).T)
-
-    return shapes3d
-
-d2r = np.pi / 180
-
-
-def sphere2cart(R, lon, lat):
-    # transform spherical polar coordinates to cartesian
-    x = R * np.cos(lon * d2r) * np.cos(lat * d2r)
-    y = R * np.sin(lon * d2r) * np.cos(lat * d2r)
-    z = R * np.sin(lat * d2r)
-    return x, y, z
 
 
 def plot_hidden_cube(ax, R):

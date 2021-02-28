@@ -14,8 +14,7 @@
         "method": "simple",
         "rotation": "poles-at-vertices"
     },
-    "smoothing": "rdp",
-    "svg_filename": "images/icosahedron-simple-hires.svg",
+    "svg_filename": "svg/icosahedron-simple-hires.svg",
     "svg": true,
     "plot2d": true,
     "plot3d": true

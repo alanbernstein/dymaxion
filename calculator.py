@@ -38,7 +38,7 @@ soccerball_inradius_per_edge = min(soccerball_inradius5_per_edge, soccerball_inr
 soccerball_midradius_per_edge = 3/2 * phi  # 2.427
 
 
-polyhedron = 'soccerball'
+polyhedron = 'icosahedron'
 
 
 if polyhedron == 'icosahedron':

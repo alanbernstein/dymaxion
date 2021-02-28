@@ -15,8 +15,7 @@
         "rotation": "poles-at-vertices",
         "circumradius_in": 10
     },
-    "smoothing": "rdp",
-    "svg_filename": "images/icosahedron-simple.svg",
+    "svg_filename": "svg/icosahedron-simple.svg",
     "svg": true,
     "plot2d": true,
     "plot3d": true

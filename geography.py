@@ -1,6 +1,8 @@
 import json
-from geometry import sphere_polyarea
+from math import pi, cos, radians
+import numpy as np
 verbosity = 3
+
 
 def load_geojson(cfg):
     # returns a list of shapes (list of lists of points).
@@ -92,3 +94,37 @@ def load_geojson(cfg):
         print('fitered %6d points / %4d shapes / %3d countries' % (counts_filtered['points'], counts_filtered['shapes'], counts_total['countries']))
 
     return filtered_shapes
+
+
+def sphere_polyarea(lon, lat):
+    # returns the area of a polygon defined in longitude,latitude,
+    # via simple equal-area projection onto a unit sphere
+    lat_dist = pi / 180.0
+
+    y = [la * lat_dist for la in lat]
+    x = [lo * lat_dist * cos(radians(la)) for la, lo in zip(lat, lon)]
+
+    a = sum([x[i] * (y[i+1] - y[i-1]) for i in range(-1, len(x)-1)])
+    return abs(a)/2.0
+
+
+def latlon2xyz(R, shapes2d):
+    # apply spherical->cartesian transform for all shapes in list
+    shapes3d = []
+    for shape in shapes2d:
+        lon, lat = zip(*shape)
+        xyz = sphere2cart(R, np.array(lon), np.array(lat))
+        shapes3d.append(np.vstack(xyz).T)
+
+    return shapes3d
+
+
+d2r = np.pi / 180
+
+
+def sphere2cart(R, lon, lat):
+    # transform spherical polar coordinates to cartesian
+    x = R * np.cos(lon * d2r) * np.cos(lat * d2r)
+    y = R * np.sin(lon * d2r) * np.cos(lat * d2r)
+    z = R * np.sin(lat * d2r)
+    return x, y, z

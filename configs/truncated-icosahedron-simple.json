@@ -15,8 +15,7 @@
         "rotation": "poles-at-pentagons",
         "circumradius_in": 20
     },
-    "smoothing": "rdp",
-    "svg_filename": "images/truncated-icosahedron-simple.svg",
+    "svg_filename": "svg/truncated-icosahedron-simple.svg",
     "svg": true,
     "plot2d": true,
     "plot3d": true
