@@ -2,12 +2,14 @@ import json
 from pprint import pprint as pp
 import sys
 from ipdb import set_trace as db
+from debugx import pm
 
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from matplotlib import colors as mcolors
 import numpy as np
-
+from shapely.geometry import Point, Polygon, MultiPolygon
+from spherical_geometry.polygon import SphericalPolygon
 
 from geography import load_geojson, latlon2xyz
 
@@ -120,6 +122,7 @@ def main():
         # plot_map_latlon(ax, shapes2d)
 
         plot_layers(ax, cnc_layout)
+        # db()
         # plot_layers(ax, cnc_layout_predistort)
         ax.set_aspect('equal')
 
@@ -157,7 +160,7 @@ def main():
     plt.show()
 
 
-def generate_cnc_layout(shapes3d, dym, face_transform):
+def generate_cnc_layout_old(shapes3d, dym, face_transform):
     # plot the polyhedron net in 2d, with the corresponding projected shapes
 
     # split up shapes into segments, based on which face they're on
@@ -264,6 +267,314 @@ def generate_cnc_layout(shapes3d, dym, face_transform):
         for color, path in zip(border_path_colors, border_paths):
             layers.append({
                 'desc': 'continent-borders-%03d' % n,
+                'paths': [path],
+                'action': 'cut',
+                'svg_kwargs': {
+                    'stroke': floatcolor2hex(color),
+                    'fill-opacity': 0,
+                    'stroke_width': 0.1,
+                },
+                'plot_kwargs': {'color': color, 'linestyle': '-', 'marker': 'None', 'markersize': 2},
+                'type': 'polyline',
+            })
+            n += 1
+
+    return layers
+
+
+def kludge_projection(xyz, c):
+    # project Nx3 shape `xyz` to the plane with normal `c`,
+    # using a goofy azimuthal projection that is linear under some limit,
+    # and asymptotically approaches pi/2 above the limit. this maps the
+    # entire sphere to the hemisphere centered on `c`, which should make
+    # computing intersections reasonable.
+    x0, y0, y1 = np.pi * 0.14, np.pi * 0.14, np.pi*0.5  # limit for truncated icosahedron is tan(1/2.478) = pi*0.1350
+    h, k, m = x0+y0-y1, y1, -(y1-y0)**2
+    f = lambda x: (m + k*(x-h))/(x-h)
+    # this is a piecewise, asymptotic function designed such that
+    # f(x) = x for x < x0
+    # f(x0) = y0
+    # f'(x0) = 1
+    # f(inf) -> y1
+
+    proj = []
+    for pt in xyz:
+        if np.linalg.norm(pt) < 1e-15:
+            # dumb glitch
+            continue
+
+        a = np.arccos(np.dot(pt, c)/(np.linalg.norm(pt)*np.linalg.norm(c)))
+
+        # https://en.wikipedia.org/wiki/Slerp
+        omega = np.arccos(np.dot(pt, c))
+        #if omega == 0:
+        #    db()
+        t = 1
+        if a >= x0:
+            t = f(a)/a
+        v = np.sin((1-t)*omega)/np.sin(omega) * c + np.sin(t*omega)/np.sin(omega) * pt
+
+        axis = np.cross(c, pt)
+        proj.append(v)
+
+    return np.array(proj)
+
+
+
+def generate_cnc_layout(shapes3d, dym, face_transform):
+    # plot the polyhedron net in 2d, with the corresponding projected shapes
+
+    # get a dict of lists, simply indicating which shapes are included on each face
+    shapes_on_face = {n: [] for n in range(len(dym.faces))}
+    # {face_id: []shape_id}
+    for shape_id, shape in enumerate(shapes3d):
+        pxyz, faces = dym.project(shape)
+        for face_id in list(set(faces)):
+            shapes_on_face[face_id].append(shape_id)
+
+    """
+    print('---- debug show bad points')
+    for shape_id, shape in enumerate(shapes3d):
+
+        # get some face that touches this shape
+        for fid in shapes_on_face:
+            if shape_id in shapes_on_face[fid]:
+                face_id = fid
+                break
+
+        print('  shape_id = %d' % shape_id)
+
+        fn = dym.face_unit_normals[face_id]
+        Rot = rotation_matrix_from_src_dest_vecs(fn, [0, 0, 1])
+        fv_open = dym.vertices[dym.faces[face_id]]
+        fv = np.vstack((fv_open, fv_open[0,:]))
+        fv2 = fv @ Rot.T
+        fx, fy, fr = face_transform(face_id, fv2)
+        fRot = np.array([[np.cos(fr), -np.sin(fr)], [np.sin(fr), np.cos(fr)]])
+        fv2_oriented = fv2[:, 0:2] @ fRot
+
+        proj3d = dym.project_simple_archimedean_face(shapes3d[shape_id], face_id)
+        proj2d = proj3d @ Rot.T
+        proj2d_oriented = proj2d[:, 0:2] @ fRot
+
+        poly_shape = Polygon(proj2d_oriented)
+        poly_face = Polygon(fv2_oriented)
+
+        geometry_error = False
+        try:
+            poly_proj2d_clipped = poly_shape.intersection(poly_face)
+            print('    did intersection successfully ')
+
+        except Exception as exc:
+            print('geometry problem')
+            geometry_error = True
+
+        if geometry_error or shape_id == 7:
+            plt.figure()
+            plt.plot(proj2d_oriented[:,0], proj2d_oriented[:,1], 'r')
+            plt.plot(fv2_oriented[:,0], fv2_oriented[:,1], 'k')
+
+            for n, xy in enumerate(proj2d_oriented):
+                #if shape_id == 1 and 1900 < n < 1920:
+                plt.text(xy[0], xy[1], n)
+            plt.title('shape = %d, face = %d' % (shape_id, face_id))
+            plt.axis('equal')
+
+            plt.show()
+
+            db()
+    """
+
+    # for each face, rotate it and its corresponding shapes onto XY plane,
+    # then use the face_transform function to adjust the layout,
+    # then compute intersection of face and shape, to clip it properly.
+    print('---- compute layout')
+    edge_paths = []
+    border_paths = []
+    border_paths2 = []
+    border_path_colors = []
+    label_locs = []
+    label_texts = []
+    for face_id, shape_ids in shapes_on_face.items():
+        fn = dym.face_unit_normals[face_id]
+        Rot = rotation_matrix_from_src_dest_vecs(fn, [0, 0, 1])
+        fv_open = dym.vertices[dym.faces[face_id]]
+        fv = np.vstack((fv_open, fv_open[0,:]))
+        fv2 = fv @ Rot.T
+        fx, fy, fr = face_transform(face_id, fv2)
+        fRot = np.array([[np.cos(fr), -np.sin(fr)], [np.sin(fr), np.cos(fr)]])
+        fv2_oriented = fv2[:, 0:2] @ fRot
+
+        edge_paths.append(np.vstack((
+            fx + fv2_oriented[:, 0],
+            fy + fv2_oriented[:, 1],
+        )).T)
+
+        label_locs.append([fx, fy])
+        label_texts.append('%s' % face_id)
+
+        for shape_id in shape_ids:
+            color = colorizer(shape_id)
+            border_path_colors.append(color)
+            print(face_id, shape_id, floatcolor2hex(color))
+
+            # NOTE: the best way to clip the shape to the face is to compute their
+            # intersection as two polygons.
+            # 1. project entire shape onto the face, then compute planar intersection.
+            #    doesn't work because some shapes span too much of the globe, so the
+            #    projection explodes
+            # 2. compute intersection of spherical polygons.
+            #    haven't yet found a decent library to do this, not worth implementing myself unless necessary
+            # 3. project to some proper azimuthal map projection, compute planar intersection there, then project back to dymaxion
+            #
+            # 3b. use some ad-hoc azimuthal projection that works well enough
+
+            warped = kludge_projection(shapes3d[shape_id], fn)
+
+            # TODO generalize this face projection call
+            proj3d = dym.project_simple_archimedean_face(shapes3d[shape_id], face_id)
+            proj2d = proj3d @ Rot.T
+            proj2d_oriented = proj2d[:, 0:2] @ fRot
+
+            proj3d_warped = dym.project_simple_archimedean_face(warped, face_id)
+            proj2d_warped = proj3d_warped @ Rot.T
+            proj2d_warped_oriented = proj2d_warped[:, 0:2] @ fRot
+
+
+            poly_shape = Polygon(proj2d_oriented)
+            poly_shape_warped = Polygon(proj2d_warped_oriented)
+            poly_face = Polygon(fv2_oriented)
+
+            plot = True
+            geometry_error = False
+
+            try:
+                poly_proj2d_clipped = poly_shape.intersection(poly_face)
+            except Exception as exc:
+                print(face_id, shape_id, 'invalid geometry')
+                geometry_error = True
+
+            try:
+                poly_proj2d_warped_clipped = poly_shape_warped.intersection(poly_face)
+            except Exception as exc:
+                print(face_id, shape_id, 'invalid geometry (warped)')
+                geometry_error = True
+
+            if geometry_error and plot:
+                plt.figure()
+                plt.plot(proj2d_warped_oriented[:,0], proj2d_warped_oriented[:,1], 'g', label='proj2d_warped_oriented')
+                plt.plot(fv2_oriented[:,0], fv2_oriented[:,1], 'k', label='fv2_oriented')
+                xmin, xmax, ymin, ymax = plt.axis()
+                plt.plot(proj2d_oriented[:,0], proj2d_oriented[:,1], 'r', label='proj2d_oriented')
+                plt.axis('equal')
+                plt.xlim(xmin, xmax)
+                plt.ylim(ymin, ymax)
+                plt.legend()
+                plt.title('%d/%d' % (face_id, shape_id))
+
+                #fig = plt.figure()
+                #ax = fig.add_subplot(111, projection='3d')
+                #plt.plot(shapes3d[shape_id][:,0], shapes3d[shape_id][:,1], shapes3d[shape_id][:,2], 'r')
+                #plt.plot(rough_clipped[:,0], rough_clipped[:,1], rough_clipped[:,2], 'g--')
+                #plt.plot(fv[:,0], fv[:,1], fv[:,2], 'k')
+
+                # plt.show()
+                #db()
+
+            if type(poly_proj2d_clipped) == Polygon:
+                proj2d_clipped = poly_proj2d_clipped.exterior.coords.xy
+                border_paths.append(np.vstack((
+                    fx + proj2d_clipped[0],
+                    fy + proj2d_clipped[1],
+                )).T)
+            elif type(poly_proj2d_clipped) == MultiPolygon:
+                for poly in poly_proj2d_clipped:
+                    # print(type(poly))
+                    proj2d_clipped = poly.exterior.coords.xy
+                    border_paths2.append(np.vstack((
+                        fx + proj2d_clipped[0],
+                        fy + proj2d_clipped[1],
+                    )).T)
+
+            if type(poly_proj2d_warped_clipped) == Polygon:
+                proj2d_warped_clipped = poly_proj2d_warped_clipped.exterior.coords.xy
+                border_paths2.append(np.vstack((
+                    fx + proj2d_warped_clipped[0],
+                    fy + proj2d_warped_clipped[1],
+                )).T)
+            elif type(poly_proj2d_warped_clipped) == MultiPolygon:
+                for poly in poly_proj2d_warped_clipped:
+                    proj2d_warped_clipped = poly.exterior.coords.xy
+                    border_paths2.append(np.vstack((
+                        fx + proj2d_warped_clipped[0],
+                        fy + proj2d_warped_clipped[1],
+                    )).T)
+
+    plt.figure()
+    for path in border_paths:
+        plt.plot(path[:,0], path[:,1], 'k', linewidth=2)
+    print('plotted %d border_paths' % len(border_paths))
+    for path in border_paths2:
+        plt.plot(path[:,0], path[:,1], linewidth=1)
+    print('plotted %d border_paths2' % len(border_paths2))
+    plt.show()
+
+    layers = [
+        {
+            'desc': 'face-edges',
+            'paths': edge_paths,
+            'action': 'cut',
+            'svg_kwargs': {
+                'stroke': 'black',
+                'fill-opacity': 0,
+                'stroke_width': 0.1,
+            },
+            'plot_kwargs': {'color': 'k'},
+            'type': 'polyline',
+        },
+        {
+            'desc': 'face-labels',
+            'pts': label_locs,
+            'labels': label_texts,
+            'type': 'text',
+            'plot_kwargs': {'color': 'r'},
+        }
+    ]
+    color_mode = 'shape'
+    if color_mode == 'single':
+        layers.append({
+            'desc': 'continent-borders',
+            'paths': border_paths,
+            'action': 'cut',
+            'svg_kwargs': {
+                'stroke': 'red',
+                'fill-opacity': 0,
+                'stroke_width': 0.1,
+            },
+            'plot_kwargs': {'color': 'r', 'linestyle': '-', 'marker': 'None', 'markersize': 2},
+            'type': 'polyline',
+        })
+
+    elif color_mode == 'shape':
+        n = 0
+        for color, path in zip(border_path_colors, border_paths):
+            layers.append({
+                'desc': 'continent-borders-%03d' % n,
+                'paths': [path],
+                'action': 'cut',
+                'svg_kwargs': {
+                    'stroke': floatcolor2hex(color),
+                    'fill-opacity': 0,
+                    'stroke_width': 0.1,
+                },
+                'plot_kwargs': {'color': color, 'linestyle': '-', 'marker': 'None', 'markersize': 2},
+                'type': 'polyline',
+            })
+            n += 1
+        n = 0
+        for color, path in zip(border_path_colors, border_paths2):
+            layers.append({
+                'desc': 'continent-borders2-%03d' % n,
                 'paths': [path],
                 'action': 'cut',
                 'svg_kwargs': {
