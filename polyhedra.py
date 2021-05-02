@@ -119,8 +119,12 @@ def icosahedron_face_transform(fid, verts):
     return x0 + L * x, y0 + L * y, -angle+a
 
 
-def face_transform_generic(verts):
-    # TODO: i have no real idea how i would implement this
+def icosahedron_unfold_tags():
+    # more general version of icosahedron_face_transform:
+    # TODO:
+    # tag each edge as eitehr a "cut" or a "fold", and write some
+    # code to implement the "unfolding" based on these tags.
+    # http://philogb.github.io/page/myriahedral/
     pass
 
 

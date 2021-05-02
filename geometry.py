@@ -1,6 +1,11 @@
 import numpy as np
 
 
+def rotate_by_axis_angle(v, k, t):
+    # https://en.wikipedia.org/wiki/Rodrigues%27_rotation_formula
+    return v * np.cos(t) + np.cross(k, v) * np.sin(t) + k * np.dot(k, v) * (1 - np.cos(t))
+
+
 def rotation_matrix_from_src_dest_vecs(src, dest):
     # https://math.stackexchange.com/questions/180418/calculate-rotation-matrix-to-align-vector-a-to-vector-b-in-3d
     v = np.cross(src, dest)

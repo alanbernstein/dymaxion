@@ -14,6 +14,7 @@ from geography import load_geojson, latlon2xyz
 from geometry import (
     rotation_matrix_from_euler,
     rotation_matrix_from_src_dest_vecs,
+    rotate_by_axis_angle,
 )
 
 from polyhedra import (
@@ -66,16 +67,28 @@ def main():
 
     # load border data
     shapes2d = load_geojson(cfg['map_data_spec'][0])
-    shapes3d = latlon2xyz(R, shapes2d)
+    shapes3d = latlon2xyz(1, shapes2d) # TODO multiply R later
+
+    # fixes self-intersecting geometry in continents.geo.json
+    # TODO check geojson filename before doing this
+    deletes = {
+        1: [1909],  # north america
+        7: [22, 23],  # antarctica
+    }
+    for shape_id, shape in enumerate(shapes3d):
+        if shape_id in deletes:
+            for d in deletes[shape_id][::-1]:
+                shapes3d[shape_id] = np.vstack((shape[:d, :], shape[(d+1):, :]))
+
 
     # define polyhedron and projection
     if cfg['projection']['polyhedron'] in ['icosahedron', '20', 'icosa']:
         polyhedron = 'icosahedron'
-        pv, pe, pf = icosahedron(circumradius=R)
+        pv, pe, pf = icosahedron(circumradius=1)
         ft = icosahedron_face_transform
     if cfg['projection']['polyhedron'] in ['truncated-icosahedron', '32', 'soccerball']:
         polyhedron = 'truncated-icosahedron'
-        pv, pe, pf = truncated_icosahedron(circumradius=R)
+        pv, pe, pf = truncated_icosahedron(circumradius=1)
         ft = truncated_icosahedron_face_transform
 
         # compute rotation angle for poles-at-pentagons
@@ -131,10 +144,10 @@ def main():
         plot_polyhedron_labels(ax, pv, pf)
 
         # auxiliary stuff
-        plot_polar_axis(ax, R)
+        plot_polar_axis(ax, 1)
         ax.view_init(elev=-20, azim=130)
-        # plot_latlon_grid(ax, R, d=30)
-        plot_hidden_cube(ax, R)
+        # plot_latlon_grid(ax, 1, d=30)
+        plot_hidden_cube(ax, 1)
         plt.xlabel('x')
         plt.xlabel('y')
 
@@ -301,6 +314,7 @@ def colorizer(idx=None):
     if idx not in colormap:
         hue = np.random.random()
         colormap[idx] = mcolors.hsv_to_rgb([hue, 1, .6])
+        print('new color: %s -> %s' % (idx, colormap[idx]))
     return colormap[idx]
 
 

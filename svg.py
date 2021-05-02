@@ -8,7 +8,7 @@ def write_svg(layers, fname, svg_kwargs={}, units=None):
         scale = scale_map[units]
 
     for l in layers:
-        print(l['desc'])
+        # print(l['desc'])
         if l['type'] == 'polyline':
             for p in l['paths']:
                 el = svgwrite.shapes.Polyline(points=scale*p, **l['svg_kwargs'])

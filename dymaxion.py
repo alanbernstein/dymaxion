@@ -99,6 +99,25 @@ class DymaxionProjection(object):
         # to arbitrary other angles (but really just 30, 60)
         raise NotImplementedError
 
+
+    def project_simple_archimedean_face(self, xyz, face_id):
+        # project a shape entirely onto a single, specified face.
+        # used when computing the proper 2D intersection of the shape
+        # with the face polygon - only the points that get projected onto
+        # the face should result from that intersection
+
+        pxyz = []
+        fc = self.face_centers[face_id] # arbitrary point on plane
+        fn = self.face_unit_normals[face_id] # normal to plane
+        num = np.dot(fc, fn)
+        for pt in xyz:
+            s = num/np.dot(pt, fn)
+            # TODO if too far away from the face, then...?
+            pxyz.append(pt * s)
+
+        return np.array(pxyz)
+
+
     def project_simple_archimedean(self, xyz):
         # for each point in the shape:
         # - select corresponding face
