@@ -70,7 +70,7 @@ def main():
 
     # load border data
     shapes2d = load_geojson(cfg['map_data_spec'][0])
-    shapes3d = latlon2xyz(1, shapes2d) # TODO multiply R later
+    shapes3d = latlon2xyz(1, shapes2d)
 
     # fixes self-intersecting geometry in continents.geo.json
     # TODO check geojson filename before doing this
@@ -106,7 +106,9 @@ def main():
     dym = DymaxionProjection(pv, pe, pf)
     dym.set_projection(cfg['projection']['method'])
 
-    cnc_layout = generate_cnc_layout(shapes3d, dym, ft)
+    cnc_layout, W, H = generate_cnc_layout(shapes3d, dym, ft, R)
+
+    # db()
 
     # json.dump(cnc_layout_simple[1]['paths'][26].tolist(), open('border-sample-australia.json', 'w'))
 
@@ -125,10 +127,13 @@ def main():
         plot_layers(ax, cnc_layout)
         # db()
         # plot_layers(ax, cnc_layout_predistort)
+        ax.invert_yaxis()  # match svg coordinate system
         ax.set_aspect('equal')
 
     if cfg.get('svg'):
-        write_svg(cnc_layout, cfg['svg_filename'], {'width': '52in', 'height': '30in'})
+        # 96 pts per inch ???
+        layout_svg, _, _ = adjust_layers(cnc_layout, scale=20)
+        write_svg(layout_svg, cfg['svg_filename'], W*20, H*20)
 
     if cfg.get('dxf'):
         write_dxf(cnc_layout, cfg['dxf_filename'])
@@ -161,9 +166,54 @@ def main():
     plt.show()
 
 
+def adjust_layers(layers, origin=False, invert=False, scale=1):
+    # apply some simple transformations to all paths/points in a set of layers
+    # - re-zero to the origin
+    # - invert y-axis
+    # - scale
+
+    # get range of values
+    lo = [1000000, 1000000]    # xmin, ymin
+    hi = [-1000000, -1000000]  # xmax, ymax
+    for l in layers:
+        if l['type'] == 'polyline':
+            for p in l['paths']:
+                lo = np.min(np.vstack((p, lo)), axis=0)
+                hi = np.max(np.vstack((p, hi)), axis=0)
+
+    W, H = scale * (hi - lo)
+
+    for n, l in enumerate(layers):
+        # print(l['desc'])
+        if l['type'] == 'text':
+            p = l['pts']
+
+            # scale, shift to origin, invert
+            p = scale * p
+            if origin:
+                p = p-scale*lo
+            if invert:
+                p[:,1] = H - p[:,1]
+
+            layers[n]['pts'] = p
+        if l['type'] == 'polyline':
+            for m, p in enumerate(l['paths']):
+
+                # scale, shift to origin, invert
+                p = scale * p
+                if origin:
+                    p = p-scale*lo
+                if invert:
+                    p[:,1] = H - p[:,1]
+
+                layers[n]['paths'][m] = p
+
+    return layers, W, H
+
+
 def kludge_projection(xyz, c):
     # project Nx3 shape `xyz` to the plane with normal `c`,
-    # using a goofy azimuthal projection that is linear under some limit,
+    # using a goofy azimuthal projection that is identity under some limit,
     # and asymptotically approaches pi/2 above the limit. this maps the
     # entire sphere to the hemisphere centered on `c`, which should make
     # computing intersections reasonable.
@@ -200,7 +250,7 @@ def kludge_projection(xyz, c):
 
 
 
-def generate_cnc_layout(shapes3d, dym, face_transform):
+def generate_cnc_layout(shapes3d, dym, face_transform, R):
     # plot the polyhedron net in 2d, with the corresponding projected shapes,
     # clipped by the faces they belong to.
 
@@ -234,13 +284,10 @@ def generate_cnc_layout(shapes3d, dym, face_transform):
         fRot = np.array([[np.cos(fr), -np.sin(fr)], [np.sin(fr), np.cos(fr)]])  # rotation matrix to adjust orientation of face within xy plane
         fv2_oriented = fv2[:, 0:2] @ fRot                          # 2d face vertices rotated to proper poly-net orientation
 
-        edge_paths.append(fv2_oriented + [fx, fy])           # 2d face vertices transformed to proper poly-net position
-
-        # db()
+        edge_paths.append(fv2_oriented + [fx, fy])                 # 2d face vertices transformed to proper poly-net position
 
         label_locs.append([fx, fy])
         label_texts.append('%s' % face_id)
-
 
         # for each shape:
         # - project it from its sphere-surface xyz 3d points to an intermediate projection
@@ -345,7 +392,7 @@ def generate_cnc_layout(shapes3d, dym, face_transform):
         },
         {
             'desc': 'face-labels',
-            'pts': label_locs,
+            'pts': np.array(label_locs),
             'labels': label_texts,
             'type': 'text',
             'plot_kwargs': {'color': 'r'},
@@ -379,7 +426,23 @@ def generate_cnc_layout(shapes3d, dym, face_transform):
             'type': 'polyline',
         })
 
-    return layers
+
+    adjusted, W, H = adjust_layers(layers, origin=True, invert=True, scale=R)
+
+    adjusted.append({
+            'desc': 'inch-scale',
+            'paths': [np.array([[1.0, 0], [0, 0], [0, 1]])],
+            'action': 'draw',
+            'svg_kwargs': {
+                'stroke': 'black',
+                'fill-opacity': 0,
+                'stroke_width': 0.1,
+            },
+            'plot_kwargs': {'color': 'k'},
+            'type': 'polyline',
+    })
+
+    return adjusted, W, H
 
 
 def floatcolor2hex(floatcolor):
