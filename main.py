@@ -167,10 +167,14 @@ def main():
 
 
 def adjust_layers(layers, origin=False, invert=False, scale=1):
-    # apply some simple transformations to all paths/points in a set of layers
+    # utility for making adjustments to SVG contents so the resulting image file
+    # is less wonky;
+    # apply some simple transformations to all paths/points in a set of layers:
     # - re-zero to the origin
     # - invert y-axis
     # - scale
+    #
+    # return adjusted layers, width, and height (so those can hopefully be set in svg metadata)
 
     # get range of values
     lo = [1000000, 1000000]    # xmin, ymin
@@ -211,17 +215,34 @@ def adjust_layers(layers, origin=False, invert=False, scale=1):
     return layers, W, H
 
 
+# TODO: ideally, this function, and most of the cnc layout code, should be absorbed into the dymaxion class.
+# a "projection class" should be capable of accepting a set of parameters, a list of lat-lon shapes,
+# and returning a corresponding list of shapes in the output/projected space.
+# for conventional planar projections, this is a simpler concept, because the output space is simply a 2D plane.
+# dymaxion projections for CNC introduce several complications:
+# - "interruptions" can cause input shapes to result in multiple output shapes,
+#   so the input is a list of shapes but the output is a list of lists of shapes.
+#   (https://en.wikipedia.org/wiki/Interruption_(map_projection))
+# - there are two output spaces:
+#   - the surface of the polyhedron
+#   - the 2d plane after unfolding the polyhedron
+# - the unfolding step is itself nontrivial
+# - any shape in the 2d plane that crosses a polyhedron face boundary (even if not interrupted)
+#   needs to be represented as a closed loop that coincides with that boundary.
+#   this is the CNC requirement, and this is what necessitates this "partial-identity azimuthal"
+#   intermediate projection.
 def kludge_projection(xyz, c):
-    # project Nx3 shape `xyz` to the plane with normal `c`,
+    # project Nx3 shape `xyz` to the plane with normal `c`, (TODO: what plane? what projection?)
     # using a goofy azimuthal projection that is identity under some limit,
     # and asymptotically approaches pi/2 above the limit. this maps the
-    # entire sphere to the hemisphere centered on `c`, which should make
-    # computing intersections reasonable.
+    # entire sphere to the hemisphere centered on `c`, which simplifies computation
+    # of intersections of oversized spherical polyhedra.
+
     x0, y0, y1 = np.pi * 0.14, np.pi * 0.14, np.pi*0.5  # limit for truncated icosahedron is tan(1/2.478) = pi*0.1350
     h, k, m = x0+y0-y1, y1, -(y1-y0)**2
     f = lambda x: (m + k*(x-h))/(x-h)
     # this is a piecewise, asymptotic function designed such that
-    # f(x) = x for x < x0
+    # f(x) = x for x < x0    (this case is handled outside of the lambda)
     # f(x0) = y0
     # f'(x0) = 1
     # f(inf) -> y1
@@ -232,8 +253,10 @@ def kludge_projection(xyz, c):
             # dumb glitch
             continue
 
+        # TODO: comment this
         a = np.arccos(np.dot(pt, c)/(np.linalg.norm(pt)*np.linalg.norm(c)))
 
+        # TODO: comment this, separate into function
         # https://en.wikipedia.org/wiki/Slerp
         omega = np.arccos(np.dot(pt, c))
         #if omega == 0:
@@ -243,6 +266,7 @@ def kludge_projection(xyz, c):
             t = f(a)/a
         v = np.sin((1-t)*omega)/np.sin(omega) * c + np.sin(t*omega)/np.sin(omega) * pt
 
+        # TODO: comment this
         axis = np.cross(c, pt)
         proj.append(v)
 
@@ -377,6 +401,18 @@ def generate_cnc_layout(shapes3d, dym, face_transform, R):
 
 
     # assemble output
+    # TODO: collect alan-layers into groups
+    #       write each group as an SVG-layer, each containing several paths
+
+    # TODO: consolidate "vectorized" functionality into a class, like this:
+    #
+    # layers = defaultdict(list)
+    # layers['face-edges'] = PathGroup(paths=edge_paths, color='k')
+    # layers['face-labels'] = TextGroup(points=np.array(label_locs), labels=label_texts)
+    # for (fid, sid), data in border_paths_dict.items():
+    #     layers['%d-warped' % sid].append(paths=PathGroup(data['warped'], color=color, description='warped-%d-%d' % (fid, sid)))
+    #     layers['%d-unwarped' % sid].append(paths=PathGroup(data['unwarped'], color=color, description='warped-%d-%d' % (fid, sid)))
+
     layers = [
         {
             'desc': 'face-edges',
