@@ -12,6 +12,9 @@ import numpy as np
 from shapely.geometry import Point, Polygon, MultiPolygon
 from spherical_geometry.polygon import SphericalPolygon
 
+
+from dymaxion import DymaxionProjection
+
 from geography import load_geojson, latlon2xyz
 
 from geometry import (
@@ -27,9 +30,11 @@ from polyhedra import (
     truncated_icosahedron_face_transform,
 )
 
-from dymaxion import DymaxionProjection
-
-from svg import write_svg
+from vectorized import (
+    Vectorized,
+    TextGroup,
+    PolylineGroup,
+)
 
 
 # TODO: select other islands (like hawaii) from world-110m
@@ -106,7 +111,7 @@ def main():
     dym = DymaxionProjection(pv, pe, pf)
     dym.set_projection(cfg['projection']['method'])
 
-    cnc_layout, W, H = generate_cnc_layout(shapes3d, dym, ft, R)
+    cnc_layout = generate_cnc_layout(shapes3d, dym, ft, R)
 
     # db()
 
@@ -124,20 +129,19 @@ def main():
         # ax = fig.add_subplot(111, projection='3d')
         # plot_map_latlon(ax, shapes2d)
 
-        plot_layers(ax, cnc_layout)
+        cnc_layout.plot(ax)
+
+        # plot_layers(ax, cnc_layout)
         # db()
         # plot_layers(ax, cnc_layout_predistort)
         ax.invert_yaxis()  # match svg coordinate system
         ax.set_aspect('equal')
 
     if cfg.get('svg'):
-        # 96 pts per inch ???
-        layout_svg, _, _ = adjust_layers(cnc_layout, scale=20)
-        write_svg(layout_svg, cfg['svg_filename'], W*20, H*20)
+        cnc_layout.write_svg_file(cfg['svg_filename'])
 
     if cfg.get('dxf'):
-        write_dxf(cnc_layout, cfg['dxf_filename'])
-        # TODO: write dxf https://pypi.org/project/ezdxf/0.6.2/
+        cnc_layout.write_dxf(cfg['dxf_filename'])
 
     if cfg.get('plot3d'):
         # for 3d plots
@@ -164,55 +168,6 @@ def main():
         fig.subplots_adjust(left=-0.5, right=1.5)
 
     plt.show()
-
-
-def adjust_layers(layers, origin=False, invert=False, scale=1):
-    # utility for making adjustments to SVG contents so the resulting image file
-    # is less wonky;
-    # apply some simple transformations to all paths/points in a set of layers:
-    # - re-zero to the origin
-    # - invert y-axis
-    # - scale
-    #
-    # return adjusted layers, width, and height (so those can hopefully be set in svg metadata)
-
-    # get range of values
-    lo = [1000000, 1000000]    # xmin, ymin
-    hi = [-1000000, -1000000]  # xmax, ymax
-    for l in layers:
-        if l['type'] == 'polyline':
-            for p in l['paths']:
-                lo = np.min(np.vstack((p, lo)), axis=0)
-                hi = np.max(np.vstack((p, hi)), axis=0)
-
-    W, H = scale * (hi - lo)
-
-    for n, l in enumerate(layers):
-        # print(l['desc'])
-        if l['type'] == 'text':
-            p = l['pts']
-
-            # scale, shift to origin, invert
-            p = scale * p
-            if origin:
-                p = p-scale*lo
-            if invert:
-                p[:,1] = H - p[:,1]
-
-            layers[n]['pts'] = p
-        if l['type'] == 'polyline':
-            for m, p in enumerate(l['paths']):
-
-                # scale, shift to origin, invert
-                p = scale * p
-                if origin:
-                    p = p-scale*lo
-                if invert:
-                    p[:,1] = H - p[:,1]
-
-                layers[n]['paths'][m] = p
-
-    return layers, W, H
 
 
 # TODO: ideally, this function, and most of the cnc layout code, should be absorbed into the dymaxion class.
@@ -401,101 +356,39 @@ def generate_cnc_layout(shapes3d, dym, face_transform, R):
 
 
     # assemble output
-    # TODO: collect alan-layers into groups
-    #       write each group as an SVG-layer, each containing several paths
-
-    # TODO: consolidate "vectorized" functionality into a class, like this:
-    #
-    # layers = defaultdict(list)
-    # layers['face-edges'] = PathGroup(paths=edge_paths, color='k')
-    # layers['face-labels'] = TextGroup(points=np.array(label_locs), labels=label_texts)
-    # for (fid, sid), data in border_paths_dict.items():
-    #     layers['%d-warped' % sid].append(paths=PathGroup(data['warped'], color=color, description='warped-%d-%d' % (fid, sid)))
-    #     layers['%d-unwarped' % sid].append(paths=PathGroup(data['unwarped'], color=color, description='warped-%d-%d' % (fid, sid)))
-
-    layers = [
-        {
-            'desc': 'face-edges',
-            'paths': edge_paths,
-            'action': 'cut',
-            'svg_kwargs': {
-                'stroke': 'black',
-                'fill-opacity': 0,
-                'stroke_width': 0.1,
-            },
-            'plot_kwargs': {'color': 'k'},
-            'type': 'polyline',
-        },
-        {
-            'desc': 'face-labels',
-            'pts': np.array(label_locs),
-            'labels': label_texts,
-            'type': 'text',
-            'plot_kwargs': {'color': 'r'},
-        }
-    ]
-
-    for (fid, sid), data in border_paths_dict.items():
-        color = colorizer(sid)
-        layers.append({
-            'desc': 'continent-borders-warped-%02d-%02d' % (fid, sid),
-            'paths': data['warped'],
-            'action': 'cut',
-            'svg_kwargs': {
-                'stroke': floatcolor2hex(color),
-                'fill-opacity': 0,
-                'stroke_width': 0.1,
-            },
-            'plot_kwargs': {'color': color, 'linewidth': 1,},
-            'type': 'polyline',
-        })
-        layers.append({
-            'desc': 'continent-borders-unwarped-%02d-%02d' % (fid, sid),
-            'paths': data['unwarped'],
-            'action': 'cut',
-            'svg_kwargs': {
-                'stroke': floatcolor2hex(color),
-                'fill-opacity': 0,
-                'stroke_width': 0.1,
-            },
-            'plot_kwargs': {'color': color, 'linewidth': 1,},
-            'type': 'polyline',
-        })
+    drawing = Vectorized(children=[
+        PolylineGroup(paths=edge_paths, color='k', name='face-edges'),
+        TextGroup(path=np.array(label_locs), texts=label_texts, color='r', name='face-labels'),
+    ])
 
 
-    adjusted, W, H = adjust_layers(layers, origin=True, invert=True, scale=R)
+    GROUP_GRANULARITY = 'face-shape'
+    if GROUP_GRANULARITY == 'face-shape':
+        for (fid, sid), data in border_paths_dict.items():
+            c = colorizer(sid)
+            drawing.children.append(PolylineGroup(data['warped'], color=c, name='warped-%d-%d' % (fid, sid)))
+            drawing.children.append(PolylineGroup(data['unwarped'], color=c, name='unwarped-%d-%d' % (fid, sid)))
 
-    adjusted.append({
-            'desc': 'inch-scale',
-            'paths': [np.array([[1.0, 0], [0, 0], [0, 1]])],
-            'action': 'draw',
-            'svg_kwargs': {
-                'stroke': 'black',
-                'fill-opacity': 0,
-                'stroke_width': 0.1,
-            },
-            'plot_kwargs': {'color': 'k'},
-            'type': 'polyline',
-    })
+    elif GROUP_GRANULARITY == 'shape':
+        shape_paths_warped = defaultdict(list)
+        shape_paths_unwarped = defaultdict(list)
+        for (fid, sid), data in border_paths_dict.items():
+            shape_paths[sid].extend(data['warped'])
+            shape_paths[sid].extend(data['unwarped'])
 
-    return adjusted, W, H
+        for sid, paths in shape_paths_warped.items():
+            drawing.children.append(PolylineGroup(paths=paths, name='warped-%d' % sid, color=colorizer(sid)))
+
+        for sid, paths in shape_paths_unwarped.items():
+            drawing.children.append(PolylineGroup(paths=paths, name='unwarped-%d' % sid, color=colorizer(sid)))
 
 
-def floatcolor2hex(floatcolor):
-    return '#%02x%02x%02x' % tuple(int(255*x) for x in floatcolor)
+    drawing.adjust(scale=R, invert=True, origin=True)
 
+    scale_axes = np.array([[1.0, 0], [0, 0], [0, 1]])
+    drawing.children.append(PolylineGroup(paths=[scale_axes], color='k', name="inch-scale"))
 
-def plot_layers(ax, layers):
-    # print('plotting layout layers')
-    for l in layers:
-        # print('  %s' % l['desc'])
-        if l['type'] == 'polyline':
-            for p in l['paths']:
-                # print('    len = %d' % len(p))
-                ax.plot(p[:,0], p[:,1], **l['plot_kwargs'])
-        if l['type'] == 'text':
-            for p, txt in zip(l['pts'], l['labels']):
-                ax.text(p[0], p[1], txt, **l['plot_kwargs'])
+    return drawing
 
 
 colormap = {}
