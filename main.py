@@ -12,6 +12,9 @@ import numpy as np
 from shapely.geometry import Point, Polygon, MultiPolygon
 from spherical_geometry.polygon import SphericalPolygon
 
+
+from dymaxion import DymaxionProjection
+
 from geography import load_geojson, latlon2xyz
 
 from geometry import (
@@ -27,9 +30,11 @@ from polyhedra import (
     truncated_icosahedron_face_transform,
 )
 
-from dymaxion import DymaxionProjection
-
-from svg import write_svg
+from vectorized import (
+    Vectorized,
+    TextGroup,
+    PolylineGroup,
+)
 
 
 # TODO: select other islands (like hawaii) from world-110m
@@ -106,7 +111,7 @@ def main():
     dym = DymaxionProjection(pv, pe, pf)
     dym.set_projection(cfg['projection']['method'])
 
-    cnc_layout, W, H = generate_cnc_layout(shapes3d, dym, ft, R)
+    cnc_layout = generate_cnc_layout(shapes3d, dym, ft, R)
 
     # db()
 
@@ -124,8 +129,7 @@ def main():
         # ax = fig.add_subplot(111, projection='3d')
         # plot_map_latlon(ax, shapes2d)
 
-        plot_groups(ax, cnc_layout)
-        # cnc_layout.plot()  # TODO
+        cnc_layout.plot(ax)
 
         # plot_layers(ax, cnc_layout)
         # db()
@@ -134,12 +138,10 @@ def main():
         ax.set_aspect('equal')
 
     if cfg.get('svg'):
-        write_svg_groups(cfg['svg_filename'], cnc_layout, W, H)
-        # cnc_layout.write_svg(cfg['svg_filename'], W, H)  # TODO
+        cnc_layout.write_svg_file(cfg['svg_filename'])
 
     if cfg.get('dxf'):
-        write_dxf(cnc_layout, cfg['dxf_filename'])
-        # TODO: write dxf https://pypi.org/project/ezdxf/0.6.2/
+        cnc_layout.write_dxf(cfg['dxf_filename'])
 
     if cfg.get('plot3d'):
         # for 3d plots
@@ -166,55 +168,6 @@ def main():
         fig.subplots_adjust(left=-0.5, right=1.5)
 
     plt.show()
-
-
-def adjust_layers(layers, origin=False, invert=False, scale=1):
-    # utility for making adjustments to SVG contents so the resulting image file
-    # is less wonky;
-    # apply some simple transformations to all paths/points in a set of layers:
-    # - re-zero to the origin
-    # - invert y-axis
-    # - scale
-    #
-    # return adjusted layers, width, and height (so those can hopefully be set in svg metadata)
-
-    # get range of values
-    lo = [1000000, 1000000]    # xmin, ymin
-    hi = [-1000000, -1000000]  # xmax, ymax
-    for l in layers:
-        if l['type'] == 'polyline':
-            for p in l['paths']:
-                lo = np.min(np.vstack((p, lo)), axis=0)
-                hi = np.max(np.vstack((p, hi)), axis=0)
-
-    W, H = scale * (hi - lo)
-
-    for n, l in enumerate(layers):
-        # print(l['desc'])
-        if l['type'] == 'text':
-            p = l['pts']
-
-            # scale, shift to origin, invert
-            p = scale * p
-            if origin:
-                p = p-scale*lo
-            if invert:
-                p[:,1] = H - p[:,1]
-
-            layers[n]['pts'] = p
-        if l['type'] == 'polyline':
-            for m, p in enumerate(l['paths']):
-
-                # scale, shift to origin, invert
-                p = scale * p
-                if origin:
-                    p = p-scale*lo
-                if invert:
-                    p[:,1] = H - p[:,1]
-
-                layers[n]['paths'][m] = p
-
-    return layers, W, H
 
 
 # TODO: ideally, this function, and most of the cnc layout code, should be absorbed into the dymaxion class.
@@ -403,86 +356,39 @@ def generate_cnc_layout(shapes3d, dym, face_transform, R):
 
 
     # assemble output
-    # TODO: do i really need groups of layers of paths?
-    # maybe groups of paths is sufficient?
-    # this is useful for defining color/layer/labeling behavior differently
-    # between matplotlib and svg.
-    # also useful because i want labels '%d-%d', so one level of that scheme correspond
-    # to layers, and one to groups
-    #
-    # a layer (lower level) has the same matplotlib style
-    # a group (higher level) has the same svg style
-    # this division makes sense, because i want more information available in matplotlib
-    # for debugging, while svg is the final output
-    groups = defaultdict(list)
-    groups['face-edges'].append(PolylineLayer(paths=edge_paths, color='k', description='face-edges'))
-    groups['face-labels'].append(TextLayer(path=np.array(label_locs), labels=label_texts, description='face-labels'))
-
-    for (fid, sid), data in border_paths_dict.items():
-        # the keys only include the shape-id, because these correspond to SVG groups,
-        # which have uniform color.
-        c = colorizer(sid)
-        groups['%d-warped' % sid].append(paths=PathGroup(data['warped'], color=color, description='warped-%d-%d' % (fid, sid)))
-        groups['%d-unwarped' % sid].append(paths=PathGroup(data['unwarped'], color=color, description='warped-%d-%d' % (fid, sid)))
+    drawing = Vectorized(children=[
+        PolylineGroup(paths=edge_paths, color='k', name='face-edges'),
+        TextGroup(path=np.array(label_locs), texts=label_texts, color='r', name='face-labels'),
+    ])
 
 
+    GROUP_GRANULARITY = 'face-shape'
+    if GROUP_GRANULARITY == 'face-shape':
+        for (fid, sid), data in border_paths_dict.items():
+            c = colorizer(sid)
+            drawing.children.append(PolylineGroup(data['warped'], color=c, name='warped-%d-%d' % (fid, sid)))
+            drawing.children.append(PolylineGroup(data['unwarped'], color=c, name='unwarped-%d-%d' % (fid, sid)))
 
-    # TODO:
-    # drwg = vectorized.Drawing(groups)
-    # drwg.adjust(invert=true, origin=true, scale=R)
+    elif GROUP_GRANULARITY == 'shape':
+        shape_paths_warped = defaultdict(list)
+        shape_paths_unwarped = defaultdict(list)
+        for (fid, sid), data in border_paths_dict.items():
+            shape_paths[sid].extend(data['warped'])
+            shape_paths[sid].extend(data['unwarped'])
 
+        for sid, paths in shape_paths_warped.items():
+            drawing.children.append(PolylineGroup(paths=paths, name='warped-%d' % sid, color=colorizer(sid)))
 
-    # find overall bounding box
-    minxy = [0, 0]
-    maxxy = [0, 0]
-    for group_name, group in groups.items():
-        for l in group:
-            minxy_g, maxxy_g = l.bounding_box()
-            # adjust minxy with minxy_g
-
-    left, bottom = minxy
-    right, top = maxxy
-    w, h = maxxy - minxy
-    W, H = R*w, R*h
-
-    # dx, dy = -left, -bottom           # not inverted
-    # mat = np.array([[R, 0], [0, R]])  # not inverted
-
-    dx, dy = -left, h-bottom            # inverted
-    mat = np.array([[R, 0], [0, -R]])   # inverted
-
-    # apply transform matrix to each group
-    for group_name, group in groups.items():
-        for l in group:
-            l.transform(dx, dy, mat)
+        for sid, paths in shape_paths_unwarped.items():
+            drawing.children.append(PolylineGroup(paths=paths, name='unwarped-%d' % sid, color=colorizer(sid)))
 
 
-    groups['inch-scale'].append(PolylineLayer(
-        paths=[np.array([[1.0, 0], [0, 0], [0, 1]])],
-        color='k',
-        description="inch-scale",
-    ))
+    drawing.adjust(scale=R, invert=True, origin=True)
 
-    # TODO:
-    # drwg.groups.append(<the above>)
+    scale_axes = np.array([[1.0, 0], [0, 0], [0, 1]])
+    drawing.children.append(PolylineGroup(paths=[scale_axes], color='k', name="inch-scale"))
 
-
-    # TODO: return drwg
-    return groups, W, H
-
-
-def plot_groups(ax, groups):
-    for g in group:
-        for l in g:
-            l.plot(ax)
-
-
-def write_svg_groups(filename, groups, W, H):
-    dwg = svgwrite.Drawing(filename, profile='tiny', height='%din' % H, width='%din' % W)
-    for g in groups:
-        for l in g:
-            l.write_svg(dwg)
-    dwg.save()
+    return drawing
 
 
 colormap = {}

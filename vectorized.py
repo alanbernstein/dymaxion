@@ -1,4 +1,5 @@
 import numpy as np
+import svgwrite
 """
 Vectorized is a python library for CAD and geometric design.
 The primary functionality is:
@@ -24,112 +25,157 @@ Other helper tools are also included:
 
 """
 
-# TODO move these default deferral-methods into Vectorized,
-# make Drawing and Group simply aliases of that
-# OR -- collapse Group and Layer into the same thing??
-# - actually - do BOTH of those things - just make them infinitely nestable
-# by using a nestable class to mirror SVG grouping. i don't exactly need this now,
-# but i'm trying to decide between one levels or two, and the real question
-# should be one level or unlimited, and half a reason is enough reason to make the
-# python structure match the svg structure. no need for this in matplotlib,
-# but can easily plot around it anyway.
-# also, being able to apply transformations to arbitrary groups is definitely a worthwhile
-# feature
-#
-# might want to think about incorporating SDFs as well.
+# TODO: might want to think about incorporating SDFs as well.
 # or maybe that's a separate class that just generates paths?
 # or maybe this has another output format, which is go/sdfx code?
-class Drawing(object):
-    def __init__(self, groups):
-        self.groups = groups
-
-    def plot(self, ax):
-        for g in self.groups:
-            g.plot(ax)
-
-    def write_svg(self, filename, W, H):
-        for g in self.groups:
-            g.write_svg(filename, W, H)
-
-    def adjust(self, invert, origin, scale):
-        pass
-
-    def transform(self, dx, dy, mat):
-        for g in self.groups:
-            g.transform(dx, dy, mat)
-
-
-class Group(object):
-    def __init__(self, layers):
-        self.layers = layers
-
-    def plot(self, ax):
-        for l in self.layers:
-            l.plot(ax)
-
-    def write_svg(self, filename, W, H):
-        for l in self.layers:
-            l.write_svg(filename, W, H)
-
-    def transform(self, dx, dy, mat):
-        for l in self.layers:
-            l.transform(dx, dy, mat)
 
 
 class Vectorized(object):
     """
-    a Vectorized drawing is structured like this:
-    drawing = dict{layer_name: layer_list}
-        layer_list = []Vectorized
+    A Vectorized drawing is structured like this:
+    drawing = []Vectorized
+        children = []Vectorized
 
-            PolylineLayer.paths = []path
-                path = np.array (shape = (N,2))
+    Each leaf node in the tree can represent:
+    - a list of paths
+    - a list of text objects
 
-            TextLayer.points = path
+    A path represents a single shape (assumed closed, which may not be important)
 
+    This base class is nestable, which allows it to represent arbitrary
+    grouping hierarchies. These can be SVG groups, logical layers, or
+    any other arbitrary component.
 
-    The purpose of a group is to represent ... 
-    The purpose of a layer is to represent 
-    The purpose of a path is to represent a single shape (assumed closed, which may not be important)
+    This design should enable writing to SVG as groups, instead of
+    a flat list of paths. This is not yet implemented.
 
+    This design also allows for calling bounding_box() and transform()
+    on the entire hierarchy of objects, which is useful for the adjust()
+    method, as well as general transformation actions.
     """
-    pass
+    def __init__(self, children, name=None):
+        self.children = children or []
+        self.name = name or ''
+
+    def plot(self, ax):
+        for c in self.children:
+            c.plot(ax)
+
+    def write_svg_file(self, filename):
+        minxy, maxxy = self.bounding_box()
+        w, h = maxxy - minxy  # TODO: this assumes the bounding box has one corner at the origin
+        dwg = svgwrite.Drawing(filename, profile='tiny', height='%fin' % h, width='%fin' % w)
+        self.write_svg(dwg)
+        dwg.save()
+
+    def write_svg(self, drawing):
+        for c in self.children:
+            c.write_svg(drawing)
+
+    def write_dxf_file(self, filename):
+        # TODO: write dxf https://pypi.org/project/ezdxf/0.6.2/
+        raise NotImplementedError
+
+    def transform(self, dx, dy, mat):
+        for c in self.children:
+            c.transform(dx, dy, mat)
+
+    def bounding_box(self):
+        minxy = [np.inf, np.inf]
+        maxxy = [-np.inf, -np.inf]
+        for n, c in enumerate(self.children):
+            minxy_c, maxxy_c = c.bounding_box()
+            minxy = np.nanmin(np.vstack((minxy_c, minxy)), axis=0)
+            maxxy = np.nanmax(np.vstack((maxxy_c, maxxy)), axis=0)
+
+        return minxy, maxxy
+
+    def adjust(self, scale=1, invert=True, origin=True):
+        # utility for adjusting a drawing to scale, and fit within the viewport
+        # of an SVG definition.
+        # scale: multiply every point in every path by this
+        # invert: if true, invert the y dimension, and add h to the y-offset, because SVG places origin at top-left
+        # origin: if true, translate entire drawing to a bounding box with one corner at the origin
+        minxy, maxxy = self.bounding_box()
+
+        left, bottom = minxy
+        right, top = maxxy
+        w, h = maxxy - minxy
+
+        dx, dy = 0, 0
+        mat = scale * np.eye(2)
+
+        if origin:
+            dx, dy = -left, -bottom
+
+        if invert:
+            dy -= h
+            mat = mat @ [[1, 0], [0, -1]]
+
+        # import ipdb; ipdb.set_trace()
+        self.transform(dx, dy, mat)
+
+    def dimensions(self):
+        # TODO: avoid calling bounding_box twice when caller does adjust() and then dimensions()
+        minxy, maxxy = self.bounding_box()
+        w, h = maxxy - minxy
+        return w, h
 
 
-class TextLayer(Vectorized):
-    def __init__(self, path, texts, color=None, draw_svg=False):
+class TextGroup(Vectorized):
+    def __init__(self, path, texts, name=None, color=None, draw_svg=False):
         self.paths = [path]  # just a list to keep consistent with other Layer types
         self.texts = texts or ['%d' for n in range(len(points))]
-        self.color = Color(color) or Color('k')
+        self.name = name or ''
+        if color is None:
+            color = 'k'
+        self.color = Color(color)
+        self.draw_svg = draw_svg
 
         self.plot_kwargs = {
             'color': self.color.rgb(),
         }
 
     def plot(self, ax, **plot_kwargs):
-        kw = {k: v for k, v in self.plot_kwargs.items()}.update(plot_kwargs)
+        kw = {k: v for k, v in self.plot_kwargs.items()}
+        if plot_kwargs is not None:
+            kw.update(plot_kwargs)
         for p, t in zip(self.paths[0], self.texts):
             ax.text(p[0], p[1], t, **kw)
 
     def write_svg(self, drawing, **svg_kwargs):
-        if !self.draw_svg:
+        if not self.draw_svg:
             return
-        kw = {k: v for k, v in self.svg_kwargs.items()}.update(plot_kwargs)
+        kw = {k: v for k, v in self.svg_kwargs.items()}
+        if svg_kwargs is not None:
+            kw.update(svg_kwargs)
+        raise NotImplementedError
+
+    def transform(self, dx, dy, mat):
+        for n in range(len(self.paths)):
+            self.paths[n] += [dx, dy]
+            self.paths[n] = self.paths[n] @ mat
+
+    def bounding_box(self):
+        if not self.draw_svg:
+            return [np.inf, np.inf], [-np.inf, -np.inf]
         raise NotImplementedError
 
 
-class PolylineLayer(Vectorized):
-    def __init__(self, paths, color=None, action=None, description=None):
+class PolylineGroup(Vectorized):
+    def __init__(self, paths, name=None, color=None, action=None):
         # TODO: support unpack_lineformat
         # TODO: normalize paths as an Nx2 numpy array
-        # TODO: accept several formats, including:
+        # TODO: accept several path formats, including:
         #       Nx1 complex array,
         #       pair of lists
         #       list of pairs
-        self.paths = paths
-        self.color = Color(color) or Color('k')
+        self.paths = paths  # TODO: does this need to be plural?
+        self.name = name or ''
+        if color is None:
+            color = 'k'
+        self.color = Color(color)
         self.action = action or 'cut'
-        self.description = description or ''
 
         self.plot_kwargs = {
             'color': self.color.rgb(),
@@ -146,11 +192,11 @@ class PolylineLayer(Vectorized):
         }
 
     def bounding_box(self):
-        minxy= [-np.inf, -np.inf]
-        maxxy = [np.inf, np.inf]
+        minxy = [np.inf, np.inf]
+        maxxy = [-np.inf, -np.inf]
         for p in self.paths:
-            minxy = np.min(np.vstack((p, minxy)), axis=0)
-            maxxy = np.max(np.vstack((p, maxxy)), axis=0)
+            minxy = np.nanmin(np.vstack((p, minxy)), axis=0)
+            maxxy = np.nanmax(np.vstack((p, maxxy)), axis=0)
 
         return minxy, maxxy
 
@@ -164,17 +210,21 @@ class PolylineLayer(Vectorized):
 
     def plot(self, ax, **plot_kwargs):
         # accepts at matplotlib.pyplot axis
-        kw = {k: v for k, v in self.plot_kwargs.items()}.update(plot_kwargs)
-        if 'label' not in kw and description != '':
-            kw['label'] = self.description
+        kw = {k: v for k, v in self.plot_kwargs.items()}
+        if plot_kwargs is not None:
+            kw.update(plot_kwargs)
+        if 'label' not in kw and self.name != '':
+            kw['label'] = self.name
         for p in self.paths:
             ax.plot(p[:,0], p[:,1], **kw)
 
     def write_svg(self, drawing, **svg_kwargs):
-        # accepts an svgwrite Drawing
-        # dwg = svgwrite.Drawing(fname, profile='tiny', height='%din' % H, width='%din' % W)
+        # accepts an svgwrite.Drawing
+        # TODO: write into a group
+        kw = {k: v for k, v in self.svg_kwargs.items()}
+        if svg_kwargs is not None:
+            kw.update(svg_kwargs)
 
-        kw = {k: v for k, v in self.svg_kwargs.items()}.update(plot_kwargs)
         for path in self.paths:
             rounded = np.round(path, decimals=4)
             el = svgwrite.shapes.Polyline(rounded, **kw)
@@ -182,21 +232,22 @@ class PolylineLayer(Vectorized):
 
         drawing.save()
 
-    def write_svg_group(self, group, svg_kwargs):
-        # writes to a specified group within an svg drawing
-        # TODO how do i do this even
-        # TODO i feel like this could be organized better... should be a group.write_svg() i guess
-        # TODO and i guess the geometry that's applied to all groups should be in drawing.adjust(), which encapsulates svgwrite
-
-        pass
-
 
 class CircleGroup(Vectorized):
-    pass
+    def __init__(self, paths, radii, name=None, color=None):
+        pass
 
+    def bounding_box(self):
+        pass
 
+    def transform(self, dx, dy, mat):
+        pass
 
+    def plot(self, ax, **plot_kwargs):
+        pass
 
+    def write_svg(self, drawing, **svg_kwargs):
+        pass
 
 
 class ControlShape(object):
@@ -345,6 +396,9 @@ class Color(object):
     Color is a simple class for concisely defining colors in a variety of formats,
     and then generating the equivalent representation in other formats.
 
+    The canonical format is RGB, float in [0, 1]. Integers in [0, 255] would be closer
+    to the hardware, but floats have more precision, which... might be useful?
+
     fully-specified:
     # TODO: implement
     Color(r=float, g=float, b=float)   _from_rgb_float
@@ -376,19 +430,30 @@ class Color(object):
     }
 
     def __init__(self, *args, **kwargs):
-        if len(args) == 3 and args[0] is float:
+        if len(args) == 3 and type(args[0]) is float:
             self._from_rgb_float(*args)
-        if len(args) == 1 and args[0] is list and args[0][0] is float:
+        elif len(args) == 1 and type(args[0]) is list and type(args[0][0]) is float:
             self._from_rgb_float(*args[0])
-        if len(args) == 3 and args[0] is int:
+        elif len(args) == 1 and type(args[0]) is np.ndarray and args[0].dtype == float:
+            self._from_rgb_float(*args[0])
+        elif len(args) == 3 and type(args[0]) is int:
             self._from_rgb_int(*args)
-        if len(args) == 1 and args[0] is list and args[0][0] is int:
+        elif len(args) == 1 and type(args[0]) is list and type(args[0][0]) is int:
+            self._from_rgb_int(*args[0])
+        elif len(args) == 1 and type(args[0]) is np.ndarray and args[0].dtype == int:
             self._from_rgb_int(*args[0])
 
-        if len(args) == 1 and args[0] is str and args[0][0] == '#':
+        elif len(args) == 1 and type(args[0]) is str and type(args[0][0]) == '#':
             self._from_hex(*args)
-        if len(args) == 1 and args[0] is str:
+        elif len(args) == 1 and type(args[0]) is str:
             self._from_name(*args)
+        else:
+            print('Color initialization failed')
+            import ipdb; ipdb.set_trace()
+
+    def __repr__(self):
+        return '<Color>'
+        # return '<Color(r=%d, g=%d, b=%d)>' % (self.r, self.g, self.b)
 
     def _from_rgb_float(self, r, g, b):
         self.r, self.g, self.b = r, g, b
@@ -400,7 +465,10 @@ class Color(object):
         raise NotImplementedError
 
     def _from_name(self, name):
-        self.r, self.g, self.b = name_map[name]
+        if name not in self.name_map:
+            import ipdb; ipdb.set_trace()
+            raise ValueError
+        self.r, self.g, self.b = self.name_map[name]
 
     def to_hex(self):
         return '#%02x%02x%02x' % (int(255*self.r), int(255*self.g), int(255*self.b))
