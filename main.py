@@ -124,16 +124,18 @@ def main():
         # ax = fig.add_subplot(111, projection='3d')
         # plot_map_latlon(ax, shapes2d)
 
-        plot_layers(ax, cnc_layout)
+        plot_groups(ax, cnc_layout)
+        # cnc_layout.plot()  # TODO
+
+        # plot_layers(ax, cnc_layout)
         # db()
         # plot_layers(ax, cnc_layout_predistort)
         ax.invert_yaxis()  # match svg coordinate system
         ax.set_aspect('equal')
 
     if cfg.get('svg'):
-        # 96 pts per inch ???
-        layout_svg, _, _ = adjust_layers(cnc_layout, scale=20)
-        write_svg(layout_svg, cfg['svg_filename'], W*20, H*20)
+        write_svg_groups(cfg['svg_filename'], cnc_layout, W, H)
+        # cnc_layout.write_svg(cfg['svg_filename'], W, H)  # TODO
 
     if cfg.get('dxf'):
         write_dxf(cnc_layout, cfg['dxf_filename'])
@@ -401,101 +403,86 @@ def generate_cnc_layout(shapes3d, dym, face_transform, R):
 
 
     # assemble output
-    # TODO: collect alan-layers into groups
-    #       write each group as an SVG-layer, each containing several paths
-
-    # TODO: consolidate "vectorized" functionality into a class, like this:
+    # TODO: do i really need groups of layers of paths?
+    # maybe groups of paths is sufficient?
+    # this is useful for defining color/layer/labeling behavior differently
+    # between matplotlib and svg.
+    # also useful because i want labels '%d-%d', so one level of that scheme correspond
+    # to layers, and one to groups
     #
-    # layers = defaultdict(list)
-    # layers['face-edges'] = PathGroup(paths=edge_paths, color='k')
-    # layers['face-labels'] = TextGroup(points=np.array(label_locs), labels=label_texts)
-    # for (fid, sid), data in border_paths_dict.items():
-    #     layers['%d-warped' % sid].append(paths=PathGroup(data['warped'], color=color, description='warped-%d-%d' % (fid, sid)))
-    #     layers['%d-unwarped' % sid].append(paths=PathGroup(data['unwarped'], color=color, description='warped-%d-%d' % (fid, sid)))
-
-    layers = [
-        {
-            'desc': 'face-edges',
-            'paths': edge_paths,
-            'action': 'cut',
-            'svg_kwargs': {
-                'stroke': 'black',
-                'fill-opacity': 0,
-                'stroke_width': 0.1,
-            },
-            'plot_kwargs': {'color': 'k'},
-            'type': 'polyline',
-        },
-        {
-            'desc': 'face-labels',
-            'pts': np.array(label_locs),
-            'labels': label_texts,
-            'type': 'text',
-            'plot_kwargs': {'color': 'r'},
-        }
-    ]
+    # a layer (lower level) has the same matplotlib style
+    # a group (higher level) has the same svg style
+    # this division makes sense, because i want more information available in matplotlib
+    # for debugging, while svg is the final output
+    groups = defaultdict(list)
+    groups['face-edges'].append(PolylineLayer(paths=edge_paths, color='k', description='face-edges'))
+    groups['face-labels'].append(TextLayer(path=np.array(label_locs), labels=label_texts, description='face-labels'))
 
     for (fid, sid), data in border_paths_dict.items():
-        color = colorizer(sid)
-        layers.append({
-            'desc': 'continent-borders-warped-%02d-%02d' % (fid, sid),
-            'paths': data['warped'],
-            'action': 'cut',
-            'svg_kwargs': {
-                'stroke': floatcolor2hex(color),
-                'fill-opacity': 0,
-                'stroke_width': 0.1,
-            },
-            'plot_kwargs': {'color': color, 'linewidth': 1,},
-            'type': 'polyline',
-        })
-        layers.append({
-            'desc': 'continent-borders-unwarped-%02d-%02d' % (fid, sid),
-            'paths': data['unwarped'],
-            'action': 'cut',
-            'svg_kwargs': {
-                'stroke': floatcolor2hex(color),
-                'fill-opacity': 0,
-                'stroke_width': 0.1,
-            },
-            'plot_kwargs': {'color': color, 'linewidth': 1,},
-            'type': 'polyline',
-        })
+        # the keys only include the shape-id, because these correspond to SVG groups,
+        # which have uniform color.
+        c = colorizer(sid)
+        groups['%d-warped' % sid].append(paths=PathGroup(data['warped'], color=color, description='warped-%d-%d' % (fid, sid)))
+        groups['%d-unwarped' % sid].append(paths=PathGroup(data['unwarped'], color=color, description='warped-%d-%d' % (fid, sid)))
 
 
-    adjusted, W, H = adjust_layers(layers, origin=True, invert=True, scale=R)
 
-    adjusted.append({
-            'desc': 'inch-scale',
-            'paths': [np.array([[1.0, 0], [0, 0], [0, 1]])],
-            'action': 'draw',
-            'svg_kwargs': {
-                'stroke': 'black',
-                'fill-opacity': 0,
-                'stroke_width': 0.1,
-            },
-            'plot_kwargs': {'color': 'k'},
-            'type': 'polyline',
-    })
-
-    return adjusted, W, H
+    # TODO:
+    # drwg = vectorized.Drawing(groups)
+    # drwg.adjust(invert=true, origin=true, scale=R)
 
 
-def floatcolor2hex(floatcolor):
-    return '#%02x%02x%02x' % tuple(int(255*x) for x in floatcolor)
+    # find overall bounding box
+    minxy = [0, 0]
+    maxxy = [0, 0]
+    for group_name, group in groups.items():
+        for l in group:
+            minxy_g, maxxy_g = l.bounding_box()
+            # adjust minxy with minxy_g
+
+    left, bottom = minxy
+    right, top = maxxy
+    w, h = maxxy - minxy
+    W, H = R*w, R*h
+
+    # dx, dy = -left, -bottom           # not inverted
+    # mat = np.array([[R, 0], [0, R]])  # not inverted
+
+    dx, dy = -left, h-bottom            # inverted
+    mat = np.array([[R, 0], [0, -R]])   # inverted
+
+    # apply transform matrix to each group
+    for group_name, group in groups.items():
+        for l in group:
+            l.transform(dx, dy, mat)
 
 
-def plot_layers(ax, layers):
-    # print('plotting layout layers')
-    for l in layers:
-        # print('  %s' % l['desc'])
-        if l['type'] == 'polyline':
-            for p in l['paths']:
-                # print('    len = %d' % len(p))
-                ax.plot(p[:,0], p[:,1], **l['plot_kwargs'])
-        if l['type'] == 'text':
-            for p, txt in zip(l['pts'], l['labels']):
-                ax.text(p[0], p[1], txt, **l['plot_kwargs'])
+    groups['inch-scale'].append(PolylineLayer(
+        paths=[np.array([[1.0, 0], [0, 0], [0, 1]])],
+        color='k',
+        description="inch-scale",
+    ))
+
+    # TODO:
+    # drwg.groups.append(<the above>)
+
+
+    # TODO: return drwg
+    return groups, W, H
+
+
+def plot_groups(ax, groups):
+    for g in group:
+        for l in g:
+            l.plot(ax)
+
+
+def write_svg_groups(filename, groups, W, H):
+    dwg = svgwrite.Drawing(filename, profile='tiny', height='%din' % H, width='%din' % W)
+    for g in groups:
+        for l in g:
+            l.write_svg(dwg)
+    dwg.save()
 
 
 colormap = {}
