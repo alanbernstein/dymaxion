@@ -119,15 +119,6 @@ def icosahedron_face_transform(fid, verts):
     return x0 + L * x, y0 + L * y, -angle+a
 
 
-def icosahedron_unfold_tags():
-    # more general version of icosahedron_face_transform:
-    # TODO:
-    # tag each edge as eitehr a "cut" or a "fold", and write some
-    # code to implement the "unfolding" based on these tags.
-    # http://philogb.github.io/page/myriahedral/
-    pass
-
-
 truncated_icosahedron_circumradius_per_side = 1/2 * sqrt(1 + 9 * phi**2)  # 2.478
 
 def truncated_icosahedron(circumradius=None, inradius=None):
@@ -171,6 +162,73 @@ def truncated_icosahedron(circumradius=None, inradius=None):
 
     faces = select_planar_sets(vertices, edges)
     return vertices, edges, faces
+
+
+class Unfolder(object):
+    def __init__(self):
+        pass
+
+    def unfold(self, xyz, face_id):
+        M = np.eye(3)
+        dxy = [0, 0]
+        xyz_transformed = (xyz @ M)[:,0:2] + dxy
+        return xyz_transformed
+
+
+class GridUnfolder(Unfolder):
+    def __init__(self):
+        pass
+
+    def unfold(self, xyz, face_id):
+        M = np.eye(3)
+        dxy = [0, 0]
+        xyz_transformed = (xyz @ M)[:,0:2] + dxy
+        return xyz_transformed
+
+
+class HardcodedUnfolderU22(Unfolder):
+    name = 'icosahedron'
+    fullname = 'convex-regular-icosahedron'
+    num_faces = 20
+
+    def __init__(self):
+        pass
+
+    def unfold(self, xyz, face_id):
+        # TODO move face_transform functions here...
+        M = np.eye(3)
+        dxy = [0, 0]
+        xyz_transformed = (xyz @ M)[:,0:2] + dxy
+        return xyz_transformed
+
+
+class HardcodedUnfolderU25(Unfolder):
+    name = 'truncated-icosahedron'
+    fullname = 'truncated-icosahedron'
+    num_faces = 32
+
+    def __init__(self):
+        pass
+
+    def unfold(self, xyz, face_id):
+        # TODO move face_transform functions here...
+        M = np.eye(3)
+        dxy = [0, 0]
+        xyz_transformed = (xyz @ M)[:,0:2] + dxy
+        return xyz_transformed
+
+
+class TaggedEdgeUnfolder(Unfolder):
+    # fully generic unfolder
+    # TODO:
+    # tag each edge as eitehr a "cut" or a "fold", and write some
+    # code to implement the "unfolding" based on these tags.
+    # http://philogb.github.io/page/myriahedral/
+    def __init__(self):
+        pass
+
+    def unfold(self, xyz, face_id, tagged_edge_list):
+        pass
 
 
 def truncated_icosahedron_face_transform(fid, verts):
