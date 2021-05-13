@@ -1,4 +1,31 @@
 import numpy as np
+from shapely.geometry import Point, Polygon, MultiPolygon
+
+from geometry import rotation_matrix_from_src_dest_vecs
+
+from polyhedra import (
+    icosahedron,
+    truncated_icosahedron,
+    icosahedron_face_transform,
+    truncated_icosahedron_face_transform,
+)
+
+# a "map projection class" should be capable of accepting a set of parameters, a list of lat-lon shapes,
+# and returning a corresponding list of shapes in the output/projected space.
+# for conventional planar projections, this is a simpler concept, because the output space is simply a 2D plane.
+# dymaxion projections for CNC introduce several complications:
+# - "interruptions" can cause input shapes to result in multiple output shapes,
+#   so the input is a list of shapes but the output is a list of lists of shapes.
+#   (https://en.wikipedia.org/wiki/Interruption_(map_projection))
+# - there are two output spaces:
+#   - the surface of the polyhedron
+#   - the 2d plane after unfolding the polyhedron
+# - the unfolding step is itself nontrivial (see polyhedra.py)
+# - any shape in the 2d plane that crosses a polyhedron face boundary
+#   (even if not interrupted in the 2d layout after unfolding)
+#   needs to be represented as a closed loop that coincides with that boundary.
+#   this is the CNC requirement, and this is what necessitates this "partial-identity azimuthal"
+#   intermediate "warp" projection.
 
 
 class DymaxionProjection(object):
@@ -10,7 +37,37 @@ class DymaxionProjection(object):
     # than to the central bisector of any other face.
     # that assumes "central bisector" is well-defined.
     # TODO: research this "voronoi polyhedron" concept
-    def __init__(self, vertices, edges, faces):
+    def __init__(self, *args, **kwargs):
+        if 'polyhedron' in kwargs:
+            self._init_from_name(**kwargs)
+        elif 'vertices' in kwargs and 'edges' in kwargs and 'faces' in kwargs:
+            self._init_from_data(**kwargs)
+        else:
+            print('Dymaxion initialization error')
+            import ipdb; ipdb.set_trace()
+
+        self.projection = 'simple'  # 'simple', 'predistort'
+
+    def _init_from_name(self, polyhedron, mat=None):
+        if polyhedron in ['icosahedron', '20', 'icosa']:
+            pv, pe, pf = icosahedron(circumradius=1)
+            self.face_transform = icosahedron_face_transform
+        elif polyhedron in ['truncated-icosahedron', '32', 'soccerball']:
+            pv, pe, pf = truncated_icosahedron(circumradius=1)
+            self.face_transform = truncated_icosahedron_face_transform
+        else:
+            raise ValueError
+
+        if mat is not None:
+            pv = pv @ mat
+
+        self._init_from_data(pv, pe, pf)
+
+        self._init_2d()
+
+    def _init_from_data(self, vertices, edges, faces):
+        # set verts, edges, faces
+        # calculate simple geometry values based on v, e, f
         self.vertices = vertices
         self.edges = edges
         self.faces = faces
@@ -19,7 +76,26 @@ class DymaxionProjection(object):
         self.face_center_mags = np.linalg.norm(self.face_centers, axis=1)
         self.face_unit_normals = self.face_centers / self.face_center_mags[:,None]
 
-        self.projection = 'simple'  # 'simple', 'predistort'
+    def _init_2d(self):
+        # calculate some linear transform values, and cache them.
+        # these are used for:
+        # 1. rotating the 3d faces (and shapes projected onto them) into the XY plane
+        # 2. rotating and translating the results of (1) into the proper unfolded-polyhedron position
+        self.face_vertices_2d = {}
+        self.face_transform_data_2d = {}
+
+        for face_id in range(len(self.faces)):
+            fn = self.face_unit_normals[face_id]                       # face normal
+            fv = self.vertices[self.faces[face_id]]                    # face vertices
+            # fv_closed = np.vstack((fv, fv[0,:]))                       # face vertices (closed shape)
+            Rot = rotation_matrix_from_src_dest_vecs(fn, [0, 0, 1])    # rotation matrix to bring face into xy plane
+            fv2 = fv @ Rot.T                                    # 3d face vertices rotated to xy plane
+            fx, fy, fr = self.face_transform(face_id, fv2)             # get 2d transformation parameters
+            fRot = np.array([[np.cos(fr), -np.sin(fr)], [np.sin(fr), np.cos(fr)]])  # rotation matrix to adjust orientation of face within xy plane
+            fv2_oriented = fv2[:, 0:2] @ fRot + [fx, fy]               # 2d face vertices rotated+translated to proper poly-net position+orientation
+
+            self.face_vertices_2d[face_id] = fv2_oriented
+            self.face_transform_data_2d[face_id] = (fx, fy, fr)
 
     def set_projection(self, pstring):
         self.projection = pstring
@@ -100,11 +176,129 @@ class DymaxionProjection(object):
         raise NotImplementedError
 
 
+    def project_simple_closed(self, xyz, face_id):
+        # project a shape onto a single, specified face,
+        # but return a closed shape rather than an open one,
+        # in the case when the shape extends beyond the face.
+        #
+        # this requires "clipping", i.e. computing the intersection of
+        # the face polygon with the shape polygon, which is nontrivial.
+        #
+        # several approaches:
+        #
+        # 1. project entire shape onto the face, then compute planar intersection.
+        #    doesn't work because some shapes span too much of the globe, so the
+        #    projection explodes
+        # 2. compute intersection of spherical polygons.
+        #    haven't yet found a decent library to do this, not worth
+        #    implementing myself unless necessary
+        # 3. compute planar intersection within some proper azimuthal projection
+        #
+        # 3b. use some ad-hoc azimuthal projection that works well enough
+
+        # given a face_id, get the corresponding face and:
+        # - 3d-rotate it and its corresponding shapes onto XY plane,
+        # - use the face_transform function to adjust the layout within the XY plane
+        # - compute intersection of face with shapes, to clip them properly.
+
+        # given the shape path `xyz`:
+        # - project it from its sphere-surface xyz 3d points to an intermediate projection
+        #     this retains the shape as is, in the vicinity of the face, but condenses the rest of it,
+        #     so that the polyhedron-face projection doesn't blow up
+        # - project the intermediate projection onto the (single known face of the) polyhedron
+        # - transform the fully-projected shape to the xy plane, in correct poly-net orientation
+        # - compute intersection of shape and face
+
+
+        projected = {}
+
+        # TODO this section can probably be cleaned up a little and deduplicated
+        fn = self.face_unit_normals[face_id]                        # face normal
+        Rot = rotation_matrix_from_src_dest_vecs(fn, [0, 0, 1])    # rotation matrix to bring face into xy plane
+        fx, fy, fr = self.face_transform_data_2d[face_id]
+        fRot = np.array([[np.cos(fr), -np.sin(fr)], [np.sin(fr), np.cos(fr)]])  # rotation matrix to adjust orientation of face within xy plane
+        fv2_oriented = self.face_vertices_2d[face_id]
+
+
+        warped = azimuthal_warp_projection(xyz, fn)
+
+        proj3d = self.project_simple_archimedean_face(xyz, face_id)
+        proj2d = proj3d @ Rot.T
+        proj2d_oriented = proj2d[:, 0:2] @ fRot + [fx, fy]
+
+        proj3d_warped = self.project_simple_archimedean_face(warped, face_id)
+        proj2d_warped = proj3d_warped @ Rot.T
+        proj2d_warped_oriented = proj2d_warped[:, 0:2] @ fRot + [fx, fy]
+
+
+        poly_shape = Polygon(proj2d_oriented)
+        poly_shape_warped = Polygon(proj2d_warped_oriented)
+        poly_face = Polygon(fv2_oriented)
+
+        geometry_error = False
+
+        poly_proj2d_clipped = None
+        try:
+            poly_proj2d_clipped = poly_shape.intersection(poly_face)
+        except Exception as exc:
+            print('    invalid geometry')
+            geometry_error = True
+
+        poly_proj2d_warped_clipped = None
+        try:
+            poly_proj2d_warped_clipped = poly_shape_warped.intersection(poly_face)
+        except Exception as exc:
+            print('    invalid geometry (warped)')
+            geometry_error = True
+
+        paths = []
+        if type(poly_proj2d_clipped) == Polygon:
+            # convert single polygon to multipolygon
+            poly_proj2d_clipped = MultiPolygon([poly_proj2d_clipped])
+
+        if type(poly_proj2d_clipped) == MultiPolygon:
+            for poly in poly_proj2d_clipped:
+                paths.append(np.vstack(poly.exterior.coords.xy).T)
+                #print(np.vstack(poly.exterior.coords.xy).T)
+                #print(np.vstack(poly.exterior.coords.xy).T)
+
+        projected['unwarped'] = paths
+
+
+        paths = []
+        if type(poly_proj2d_warped_clipped) == Polygon:
+            poly_proj2d_warped_clipped = MultiPolygon([poly_proj2d_warped_clipped])
+
+        if type(poly_proj2d_warped_clipped) == MultiPolygon:
+            for poly in poly_proj2d_warped_clipped:
+                paths.append(np.vstack(poly.exterior.coords.xy).T)
+                #print(np.vstack(poly.exterior.coords.xy).T)
+                #print(np.vstack(poly.exterior.coords.xy).T)
+
+        projected['warped'] = paths
+
+        # debug info
+        t1, t2 = 'MultiPolygon', 'MultiPolygon'
+        if poly_proj2d_clipped is None:
+            t1 = 'None'
+        if poly_proj2d_warped_clipped is None:
+            t2 = 'None'
+
+        print('    clipped shape types = %s   %s' % (t1, t2))
+
+        return projected
+
+
+
     def project_simple_archimedean_face(self, xyz, face_id):
         # project a shape entirely onto a single, specified face.
         # used when computing the proper 2D intersection of the shape
         # with the face polygon - only the points that get projected onto
         # the face should result from that intersection
+        #
+        # "archimedean" because it assumes that if a point is closer to
+        # the center of this face, then it should be projected to this face.
+        # not sure if that is important.
 
         pxyz = []
         fc = self.face_centers[face_id] # arbitrary point on plane
@@ -230,3 +424,46 @@ class DymaxionProjection(object):
             pxyz.append(projected)
 
         return np.array(pxyz), best_faces
+
+
+
+def azimuthal_warp_projection(xyz, c):
+    # project Nx3 shape `xyz` to the plane with normal `c`, (TODO: what plane? what projection?)
+    # using a goofy azimuthal projection that is identity under some limit,
+    # and asymptotically approaches pi/2 above the limit. this maps the
+    # entire sphere to the hemisphere centered on `c`, which simplifies computation
+    # of intersections of oversized spherical polyhedra.
+
+    x0, y0, y1 = np.pi * 0.14, np.pi * 0.14, np.pi*0.5  # limit for truncated icosahedron is tan(1/2.478) = pi*0.1350
+    h, k, m = x0+y0-y1, y1, -(y1-y0)**2
+    f = lambda x: (m + k*(x-h))/(x-h)
+    # this is a piecewise, asymptotic function designed such that
+    # f(x) = x for x < x0    (this case is handled outside of the lambda)
+    # f(x0) = y0
+    # f'(x0) = 1
+    # f(inf) -> y1
+
+    proj = []
+    for pt in xyz:
+        if np.linalg.norm(pt) < 1e-15:
+            # dumb glitch
+            continue
+
+        # TODO: comment this
+        a = np.arccos(np.dot(pt, c)/(np.linalg.norm(pt)*np.linalg.norm(c)))
+
+        # TODO: comment this, separate into function
+        # https://en.wikipedia.org/wiki/Slerp
+        omega = np.arccos(np.dot(pt, c))
+        #if omega == 0:
+        #    db()
+        t = 1
+        if a >= x0:
+            t = f(a)/a
+        v = np.sin((1-t)*omega)/np.sin(omega) * c + np.sin(t*omega)/np.sin(omega) * pt
+
+        # TODO: comment this
+        axis = np.cross(c, pt)
+        proj.append(v)
+
+    return np.array(proj)
