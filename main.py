@@ -14,18 +14,7 @@ from dymaxion import DymaxionProjection
 
 from geography import load_geojson, latlon2xyz
 
-from geometry import (
-    rotation_matrix_from_euler,
-    rotation_matrix_from_src_dest_vecs,
-    rotate_by_axis_angle,
-)
-
-from polyhedra import (
-    icosahedron,
-    truncated_icosahedron,
-    icosahedron_face_transform,
-    truncated_icosahedron_face_transform,
-)
+from geometry import rotation_matrix_from_euler
 
 from vectorized import (
     Vectorized,
@@ -52,6 +41,12 @@ def get_rotation(cfg):
     if poly == 'icosahedron' and name == 'australia-face':
         return rotation_matrix_from_euler(x=np.pi*-0.03)
     if poly == 'truncated-icosahedron' and name == 'poles-at-pentagons':
+        # compute rotation angle for poles-at-pentagons
+        #pv, pe, pf = truncated_icosahedron(circumradius=1)
+        #verts = pv[pf[6]]
+        #center_of_edge = np.mean(pv[[0, 2],:], axis=0)
+        #center_of_pent = np.mean(verts,axis=0)
+        #theta = np.arccos(np.dot(center_of_edge, center_of_pent)/(np.linalg.norm(center_of_edge) * np.linalg.norm(center_of_pent)))
         return rotation_matrix_from_euler(x=np.pi*0.17620819117478337)
     # if poly == 'icosahedron' and name == 'poles-at-faces':
     # if poly == 'icosahedron' and name == 'minimal-land-disruption':
@@ -68,8 +63,6 @@ def main():
     with open(config_file, "r") as f:
         cfg = json.load(f)
 
-    R = cfg['projection']['circumradius_in']
-
     # load border data
     shapes2d = load_geojson(cfg['map_data_spec'][0])
     shapes3d = latlon2xyz(1, shapes2d)
@@ -79,36 +72,17 @@ def main():
     deletes = {
         1: [1909],  # north america
         7: [22, 23],  # antarctica
+        # TODO: antarctica is screwed up, missing a section on face 5
     }
     for shape_id, shape in enumerate(shapes3d):
         if shape_id in deletes:
             for d in deletes[shape_id][::-1]:
                 shapes3d[shape_id] = np.vstack((shape[:d, :], shape[(d+1):, :]))
 
-
-    # define polyhedron and projection
-    if cfg['projection']['polyhedron'] in ['icosahedron', '20', 'icosa']:
-        polyhedron = 'icosahedron'
-        pv, pe, pf = icosahedron(circumradius=1)
-        ft = icosahedron_face_transform  # TODO this should be the responsibility of the Dymaxion class
-    if cfg['projection']['polyhedron'] in ['truncated-icosahedron', '32', 'soccerball']:
-        polyhedron = 'truncated-icosahedron'
-        pv, pe, pf = truncated_icosahedron(circumradius=1)
-        ft = truncated_icosahedron_face_transform  # TODO this should be the responsibility of the Dymaxion class
-
-        # compute rotation angle for poles-at-pentagons
-        #verts = pv[pf[6]]
-        #center_of_edge = np.mean(pv[[0, 2],:], axis=0)
-        #center_of_pent = np.mean(verts,axis=0)
-        #theta = np.arccos(np.dot(center_of_edge, center_of_pent)/(np.linalg.norm(center_of_edge) * np.linalg.norm(center_of_pent)))
-
-
-    Rot = get_rotation(cfg)
-    pv = pv @ Rot
-    dym = DymaxionProjection(pv, pe, pf)
+    dym = DymaxionProjection(polyhedron=cfg['projection']['polyhedron'], mat=get_rotation(cfg))
     dym.set_projection(cfg['projection']['method'])
 
-    cnc_layout = generate_cnc_layout(shapes3d, dym, ft, R)
+    cnc_layout = generate_cnc_layout(shapes3d, dym, cfg['projection']['circumradius_in'])
 
     # db()
 
@@ -145,6 +119,8 @@ def main():
         fig = plt.figure()
         ax = fig.add_subplot(111, projection='3d')
 
+        pv, pe, pf = dym.vertices, dym.edges, dym.faces
+
         # globe stuff
         # plot_globe_sphere(ax, shapes3d)
         plot_globe_polyhedron(ax, shapes3d, dym)
@@ -167,9 +143,16 @@ def main():
     plt.show()
 
 
-def generate_cnc_layout(shapes3d, dym, face_transform, R):
+def generate_cnc_layout(shapes3d, dym, scale):
     # plot the polyhedron net in 2d, with the corresponding projected shapes,
     # clipped by the faces they belong to.
+    # inputs:
+    #   shapes3d: list of Nx3 arrays representing borders on the unit sphere
+    #   dym: instance of DymaxionProjection class, providing
+    #          - project() - to compute which faces are relevant for each shape
+    #          - face_vertices_2d[] - to get the unfolded polyhedron layout
+    #          - project_simple_closed() - to compute final, closed-loop, projection of a given 3d shape, onto a given face
+    #   scale: simple scale factor for adjusting size of output
 
     # dict of lists, indicating which shapes are included on each face.
     # some shapes will be included on multiple faces.
@@ -180,10 +163,6 @@ def generate_cnc_layout(shapes3d, dym, face_transform, R):
         for face_id in list(set(faces)):
             shapes_on_face[face_id].append(shape_id)
 
-    # for each face:
-    # - 3d-rotate it and its corresponding shapes onto XY plane,
-    # - use the face_transform function to adjust the layout within the XY plane
-    # - compute intersection of face with shapes, to clip them properly.
     print('---- compute layout')
     edge_paths = []
     label_locs = []
@@ -193,33 +172,17 @@ def generate_cnc_layout(shapes3d, dym, face_transform, R):
     for face_id, shape_ids in shapes_on_face.items():
         print('\nface id = %d' % face_id)
 
-        # face_edges, face_center = dym.final_face_position(face_id)  # TODO: deduplicate like this or something
+        fv2 = dym.face_vertices_2d[face_id]
+        fv2_closed = np.vstack((fv2, fv2[0,:]))  # close the loop
+        fv2_center = np.mean(fv2, axis=0)
 
-        fn = dym.face_unit_normals[face_id]                        # face normal
-        fv_open = dym.vertices[dym.faces[face_id]]                 # face vertices
-        fv = np.vstack((fv_open, fv_open[0,:]))                    # face vertices (closed shape)
-        Rot = rotation_matrix_from_src_dest_vecs(fn, [0, 0, 1])    # rotation matrix to bring face into xy plane
-        fv2 = fv @ Rot.T                                           # 3d face vertices rotated to xy plane
-        fx, fy, fr = face_transform(face_id, fv2)                  # get 2d transformation parameters
-        fRot = np.array([[np.cos(fr), -np.sin(fr)], [np.sin(fr), np.cos(fr)]])  # rotation matrix to adjust orientation of face within xy plane
-        fv2_oriented = fv2[:, 0:2] @ fRot                          # 2d face vertices rotated to proper poly-net orientation
-
-        edge_paths.append(fv2_oriented + [fx, fy])                 # 2d face vertices transformed to proper poly-net position
-
-        label_locs.append([fx, fy])
+        edge_paths.append(fv2_closed)
+        label_locs.append(fv2_center)
         label_texts.append('%s' % face_id)
-
-        # for each shape:
-        # - project it from its sphere-surface xyz 3d points to an intermediate projection
-        #     this retains the shape as is, in the vicinity of the face, but condenses the rest of it,
-        #     so that the polyhedron-face projection doesn't blow up
-        # - project the intermediate projection onto the (single known face of the) polyhedron
-        # - transform the fully-projected shape to the xy plane, in correct poly-net orientation
-        # - compute intersection of shape and face
 
         for shape_id in shape_ids:
             print('  shape id = %d' % shape_id)
-            border_paths_dict[(face_id, shape_id)] = dym.project_simple_closed(shapes3d[shape_id], face_id, face_transform)
+            border_paths_dict[(face_id, shape_id)] = dym.project_simple_closed(shapes3d[shape_id], face_id)
 
     # assemble output
     drawing = Vectorized(children=[
@@ -235,6 +198,7 @@ def generate_cnc_layout(shapes3d, dym, face_transform, R):
             drawing.children.append(PolylineGroup(data['unwarped'], color=c, name='unwarped-%d-%d' % (fid, sid)))
 
     elif GROUP_GRANULARITY == 'shape':
+        # this is intended to aid in writing to SVG groups, but the group-writing code isn't implemented yet
         shape_paths_warped = defaultdict(list)
         shape_paths_unwarped = defaultdict(list)
         for (fid, sid), data in border_paths_dict.items():
@@ -242,13 +206,13 @@ def generate_cnc_layout(shapes3d, dym, face_transform, R):
             shape_paths[sid].extend(data['unwarped'])
 
         for sid, paths in shape_paths_warped.items():
-            drawing.children.append(PolylineGroup(paths=paths, name='warped-%d' % sid, color=colorizer(sid)))
+            drawing.children.append(PolylineGroup(paths=shape_paths_warped, name='warped-%d' % sid, color=colorizer(sid)))
 
         for sid, paths in shape_paths_unwarped.items():
-            drawing.children.append(PolylineGroup(paths=paths, name='unwarped-%d' % sid, color=colorizer(sid)))
+            drawing.children.append(PolylineGroup(paths=shape_paths_unwarped, name='unwarped-%d' % sid, color=colorizer(sid)))
 
 
-    drawing.adjust(scale=R, invert=True, origin=True)
+    drawing.adjust(scale=scale, invert=True, origin=True)
 
     scale_axes = np.array([[1.0, 0], [0, 0], [0, 1]])
     drawing.children.append(PolylineGroup(paths=[scale_axes], color='k', name="inch-scale"))

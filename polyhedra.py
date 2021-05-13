@@ -248,7 +248,7 @@ def truncated_icosahedron_face_transform(fid, verts):
     }
     verts = verts - np.mean(verts, axis=0)
     angle = np.arctan2(verts[0, 0], verts[0, 1])
-    if len(verts)-1 == 6:
+    if len(verts) == 6:
         angle += np.pi/6
 
     x, y, a = transmap[fid]
