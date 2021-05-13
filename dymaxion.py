@@ -186,69 +186,59 @@ class DymaxionProjection(object):
         fn = self.face_unit_normals[face_id]             # face normal
         M3 = self.face_transforms_3d[face_id]            # rotation matrix to bring face into xy plane
         M2, dxy = self.face_transforms_2d[face_id]       # transform for bringing face/shape to final position+orientation
-        fv2_oriented = self.face_vertices_2d[face_id]
+        fv2 = self.face_vertices_2d[face_id]
+        poly_face = Polygon(fv2)
 
-        warped = azimuthal_warp_projection(xyz, fn)
+        def poly_intersection(face, shape):
+            geometry_error = False
 
+            try:
+                clipped = shape.intersection(face)
+            except Exception as exc:
+                print('    invalid geometry')
+                geometry_error = True
+
+            paths = []
+            if type(clipped) == Polygon:
+                # convert single polygon to multipolygon
+                clipped = MultiPolygon([clipped])
+
+            if type(clipped) == MultiPolygon:
+                for poly in clipped:
+                    paths.append(np.vstack(poly.exterior.coords.xy).T)
+
+            return paths, geometry_error
+
+
+        # the same sequence of operations is done on both the original shape and the "warped" shape
+        # because geometry flaws can break either (or both) of the resulting intersections
         proj3d = self.project_simple_archimedean_face(xyz, face_id)
         proj2d = proj3d @ M3.T
         proj2d_oriented = proj2d[:, 0:2] @ M2 + dxy
+        poly_shape = Polygon(proj2d_oriented)
+
+
+        warped = azimuthal_warp_projection(xyz, fn)
 
         proj3d_warped = self.project_simple_archimedean_face(warped, face_id)
         proj2d_warped = proj3d_warped @ M3.T
         proj2d_warped_oriented = proj2d_warped[:, 0:2] @ M2 + dxy
-
-
-        poly_shape = Polygon(proj2d_oriented)
         poly_shape_warped = Polygon(proj2d_warped_oriented)
-        poly_face = Polygon(fv2_oriented)
 
-        geometry_error = False
+        projected['unwarped'], gerror_unwarped = poly_intersection(poly_face, poly_shape)
+        projected['warped'], gerror_warped = poly_intersection(poly_face, poly_shape_warped)
 
-        poly_proj2d_clipped = None
-        try:
-            poly_proj2d_clipped = poly_shape.intersection(poly_face)
-        except Exception as exc:
-            print('    invalid geometry')
-            geometry_error = True
-
-        poly_proj2d_warped_clipped = None
-        try:
-            poly_proj2d_warped_clipped = poly_shape_warped.intersection(poly_face)
-        except Exception as exc:
-            print('    invalid geometry (warped)')
-            geometry_error = True
-
-        paths = []
-        if type(poly_proj2d_clipped) == Polygon:
-            # convert single polygon to multipolygon
-            poly_proj2d_clipped = MultiPolygon([poly_proj2d_clipped])
-
-        if type(poly_proj2d_clipped) == MultiPolygon:
-            for poly in poly_proj2d_clipped:
-                paths.append(np.vstack(poly.exterior.coords.xy).T)
-
-        projected['unwarped'] = paths
-
-
-        paths = []
-        if type(poly_proj2d_warped_clipped) == Polygon:
-            poly_proj2d_warped_clipped = MultiPolygon([poly_proj2d_warped_clipped])
-
-        if type(poly_proj2d_warped_clipped) == MultiPolygon:
-            for poly in poly_proj2d_warped_clipped:
-                paths.append(np.vstack(poly.exterior.coords.xy).T)
-
-        projected['warped'] = paths
-
-        # debug info
-        t1, t2 = 'MultiPolygon', 'MultiPolygon'
-        if poly_proj2d_clipped is None:
-            t1 = 'None'
-        if poly_proj2d_warped_clipped is None:
-            t2 = 'None'
-
-        print('    clipped shape types = %s   %s' % (t1, t2))
+        if not gerror_unwarped:
+            projected['final'] = projected['unwarped']
+        elif not gerror_warped:
+            projected['final'] = projected['warped']
+        else:
+            projected['final'] = []
+            # known to happen on face 5, with antarctica's "main" section
+            import matplotlib.pyplot as plt
+            plt.plot(proj2d_oriented[:,0], proj2d_oriented[:,1],'r')
+            plt.plot(fv2[:,0], fv2[:,1],'g')
+            import ipdb; ipdb.set_trace()
 
         return projected
 
