@@ -1,7 +1,7 @@
 {
     "map_data_spec": [
         {
-            "fname": "world-110m.geo.json",
+            "fname": "data/world-110m.geo.json",
             "pmap": {"name": "name", "continent": "continent"},
             "count_threshold": -1,
             "area_threshold": 10000,

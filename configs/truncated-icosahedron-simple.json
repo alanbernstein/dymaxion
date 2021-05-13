@@ -1,7 +1,7 @@
 {
     "map_data_spec": [
         {
-            "fname": "continents.geo.json",
+            "fname": "data/continents.geo.json",
             "pmap": {"name": "CONTINENT", "continent": "CONTINENT"},
             "count_threshold": 0,
             "area_threshold_km2": 100000,
