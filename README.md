@@ -4,11 +4,11 @@ Although the dymaxion projection is quite simple conceptually, generating usable
 - CNC layout requires the polyhedron->plane step, which is the majority of the effort:
   - Conceptually, this step is entirely handled by an "unfolder", which is nontrivial.
   - The resulting shapes on each face need to be *closed*, which doesn't happen automatically. This requires computing polygon intersections, preferably spherical polygons, but that turns out to be a pain. My silly workaround is in Dymaxion.project_simple_closed().
-  - For the finite-thickness-polhedron -> smoothed sphere case, the obvious dymaxion projection won't look quite right. A "predistorted" version is in the works to account for this.
+  - For the finite-thickness-polyhedron -> smoothed sphere case, the obvious dymaxion projection won't look quite right. A "predistorted" version is in the works to account for this.
 
 Additionally, I found some of these aspects worthy of encapsulating in standalone modules:
 - dymaxion.py handles different polyhedra and different projection variations.
-- vectorized.py provides a unified interface for both matplotlib and svg, and it's actually a second iteration of an existing tool that I use often for laser cutter design work.
+- vectorized.py provides a unified interface for drawing groups of 2d paths in both matplotlib and svg, and it's actually a second iteration of an existing tool that I use often for laser cutter design work.
 
 Icosahedron [Dymaxion](https://en.wikipedia.org/wiki/Dymaxion_map) projection in 3d:
 ![Icosahedron Dymaxion 3D](images/icosahedron-dymaxion-3d.png)

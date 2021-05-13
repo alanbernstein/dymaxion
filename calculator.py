@@ -52,6 +52,18 @@ elif polyhedron == 'soccerball':
 
 
 """
+calculator notes:
+
+Corner Sanded thickness matters
+Wood thickness             = outer_inradius minus inner_inradius
+sanded diameter            = outer_inradius
+unsanded envelope diameter = outer_circumradius
+Edge length                = some function of circumradius (Wikipedia)
+
+Solve this system for edge length as function of wood thickness and one of the outer diameters
+"""
+
+"""
 here's some math:
 
 1.
