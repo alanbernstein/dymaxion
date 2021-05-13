@@ -78,7 +78,12 @@ def icosahedron_face_transform(fid, verts):
     p3 = pi/3
     r3_6 = sqrt(3)/6
 
-    x0, y0 = 11, 7  # SVG doesn't like negative coordinates
+    triangle_inradius = L/2 * np.tan(pi/6)
+    triangle_circumradius = L/(2*np.cos(pi/6))
+    triangle_width = L
+    triangle_height = L * sqrt(3)/2
+
+    x0, y0 = L, triangle_circumradius  # adjust to tight fit in quadrant I
 
     transmap = {
         # face_id: [x, y, angle]
@@ -248,8 +253,13 @@ def truncated_icosahedron_face_transform(fid, verts):
     p3 = pi/3
     inr5 = 1/10 * sqrt(25 + 10*sqrt(5))# inradius of pentagon
     r3_2 = sqrt(3)/2
+    pentagon_inradius = L / (2*np.tan(p5))
+    pentagon_circumradius = L / (2*np.sin(p5))
+    pentagon_height = pentagon_inradius + pentagon_circumradius
+    hexagon_width = L*2
+    hexagon_height = L*2*r3_2
 
-    x0, y0 = 5, 8  # SVG doesn't like negative coordinates
+    x0, y0 = hexagon_width/2, hexagon_height/2 + pentagon_height  # adjust to tight fit in quadrant I
 
     transmap = {
         # face_id: [x, y, angle]

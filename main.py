@@ -11,11 +11,8 @@ from matplotlib import colors as mcolors
 import numpy as np
 
 from dymaxion import DymaxionProjection
-
 from geography import load_geojson, latlon2xyz
-
 from geometry import rotation_matrix_from_euler
-
 from vectorized import (
     Vectorized,
     TextGroup,

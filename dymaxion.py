@@ -192,6 +192,7 @@ class DymaxionProjection(object):
         def poly_intersection(face, shape):
             geometry_error = False
 
+            clipped = None
             try:
                 clipped = shape.intersection(face)
             except Exception as exc:
